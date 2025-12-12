@@ -1,3 +1,4 @@
+from curl_cffi import delete
 import cv2
 import os
 import tkinter as tk
@@ -6,6 +7,49 @@ import datetime
 
 ### extração de frames do vídeo
 
+
+def escolher_video(entry_video):
+    caminho = filedialog.askopenfilename(
+        title='Selecione o arquivo de vídeo',
+        filetypes=[('Vídeo', '*.mp4 *.avi *.mov *.mkv *.wmv *.m4v')]
+    )
+    entry_video.delete(0, tk.END)
+    entry_video.insert(0, caminho)
+
+def escolher_pasta(entry_pasta):
+    pasta = filedialog.askdirectory(title='Selecione a pasta de destino')
+    entry_pasta.delete(0, tk.END)
+    entry_pasta.insert(0, pasta)
+
+def iniciar_extracao_frames(entry_video, entry_taxa):
+    caminho_video = entry_video.get().strip()
+    try:
+        taxa = int(entry_taxa.get())
+        if taxa < 1:
+            raise ValueError
+        
+    except ValueError:
+        messagebox.showwarning("Valor inválido", "Taxa de extração deve ser um inteiro >= 1.\nUsando 1.")
+        taxa = 1
+        entry_taxa.delete(0, tk.END)
+        entry_taxa.insert(0, "1")
+    extrair_frames(caminho_video, taxa)
+
+def limpar_pasta(pasta):
+    if os.path.exists(pasta):
+        for arquivo in os.listdir(pasta):
+            caminho_arquivo = os.path.join(pasta, arquivo)
+            try:
+                if os.path.isfile(caminho_arquivo) or os.path.islink(caminho_arquivo):
+                    os.unlink(caminho_arquivo)
+                elif os.path.isdir(caminho_arquivo):
+                    os.rmdir(caminho_arquivo)
+            except Exception as e:
+                print(f"Erro ao remover {caminho_arquivo}: {e}")
+    else:
+        print(f"A pasta {pasta} não existe.")
+
+### funções principais para o bottão de extração de dados de vibração
 def extrair_frames(caminho_video, pasta_saida, taxa_extracao=1):
     if not caminho_video:
         messagebox.showerror("Erro", "É necessário escolher um vídeo.")
@@ -53,49 +97,24 @@ def extrair_frames(caminho_video, pasta_saida, taxa_extracao=1):
     messagebox.showinfo("Concluído", f"{salvo} frames salvos em:\n{pasta_saida}")
     return 
 
-def escolher_video(entry_video):
-    caminho = filedialog.askopenfilename(
-        title='Selecione o arquivo de vídeo',
-        filetypes=[('Vídeo', '*.mp4 *.avi *.mov *.mkv *.wmv *.m4v')]
-    )
-    entry_video.delete(0, tk.END)
-    entry_video.insert(0, caminho)
+def cannyLoop(pasta_frames):
+    for arquivo in os.listdir(pasta_frames):
+        if arquivo.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
+            caminho_imagem = os.path.join(pasta_frames, arquivo)
+            img = cv2.imread(caminho_imagem, cv2.IMREAD_GRAYSCALE)
+            blur = cv2.GaussianBlur(img, (3, 3), 0)
 
-def escolher_pasta(entry_pasta):
-    pasta = filedialog.askdirectory(title='Selecione a pasta de destino')
-    entry_pasta.delete(0, tk.END)
-    entry_pasta.insert(0, pasta)
+            # Aplica Canny
+            edges = cv2.Canny(blur, 100, 200)
 
-def iniciar_extracao_frames(entry_video, entry_taxa):
-    caminho_video = entry_video.get().strip()
-    try:
-        taxa = int(entry_taxa.get())
-        if taxa < 1:
-            raise ValueError
-        
-    except ValueError:
-        messagebox.showwarning("Valor inválido", "Taxa de extração deve ser um inteiro >= 1.\nUsando 1.")
-        taxa = 1
-        entry_taxa.delete(0, tk.END)
-        entry_taxa.insert(0, "1")
-    extrair_frames(caminho_video, taxa)
+            # Salva a imagem resultante
+            nome_saida = os.path.join(pasta_frames, f"canny_{arquivo}")
+            cv2.imwrite(nome_saida, edges)
+            os.remove(caminho_imagem)  # Remove a imagem original
+    messagebox.showinfo("Concluído", f"Detecção de bordas aplicada a todos os frames.\nResultados salvos em:\n{pasta_frames}")
 
-def limpar_pasta(pasta):
-    if os.path.exists(pasta):
-        for arquivo in os.listdir(pasta):
-            caminho_arquivo = os.path.join(pasta, arquivo)
-            try:
-                if os.path.isfile(caminho_arquivo) or os.path.islink(caminho_arquivo):
-                    os.unlink(caminho_arquivo)
-                elif os.path.isdir(caminho_arquivo):
-                    os.rmdir(caminho_arquivo)
-            except Exception as e:
-                print(f"Erro ao remover {caminho_arquivo}: {e}")
-    else:
-        print(f"A pasta {pasta} não existe.")
-
-
-def btn_canny(entry_video, entry_taxa):
+## função do botão de extração de dados de vibração com Canny
+def btn_vibr(entry_video, entry_taxa):
     #extração de frames
     caminho_video = entry_video.get().strip()
     try:
@@ -114,17 +133,5 @@ def btn_canny(entry_video, entry_taxa):
 
     extrair_frames(caminho_video, pasta_frames, taxa)
 
-    for arquivo in os.listdir(pasta_frames):
-        if arquivo.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
-            caminho_imagem = os.path.join(pasta_frames, arquivo)
-            img = cv2.imread(caminho_imagem, cv2.IMREAD_GRAYSCALE)
-            blur = cv2.GaussianBlur(img, (3, 3), 0)
+    cannyLoop(pasta_frames)
 
-            # Aplica Canny
-            edges = cv2.Canny(blur, 100, 200)
-
-            # Salva a imagem resultante
-            nome_saida = os.path.join(pasta_frames, f"canny_{arquivo}")
-            cv2.imwrite(nome_saida, edges)  
-    
-    return None

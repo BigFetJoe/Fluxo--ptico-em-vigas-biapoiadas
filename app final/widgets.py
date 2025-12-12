@@ -21,7 +21,7 @@ def taxa_extracao_entry(roottk):
 #botão para extração de dados de vibração
 def btn_vbr(roottk, entry_video, entry_taxa):
     btn_extrair = tk.Button(roottk, text="Extrair Frames",
-                            command=lambda: tll.btn_canny(entry_video, entry_taxa),
+                            command=lambda: tll.btn_vibr(entry_video, entry_taxa),
                             bg="#2F85CB", fg="#fff",
                             font=("Arial", 12, "bold"))
 

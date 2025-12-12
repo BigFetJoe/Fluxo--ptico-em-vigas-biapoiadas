@@ -16,10 +16,6 @@ def main():
 
     #widgets de extração de dados de vibração
 
-
-
-
-
     janela.mainloop()
 
 if __name__ == "__main__": 
