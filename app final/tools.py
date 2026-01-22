@@ -1,40 +1,9 @@
 import cv2
 import os
-import tkinter as tk
-from tkinter import filedialog, messagebox
-import datetime
-from networkx import edges
 import numpy as np
+import shutil
 
-### extração de frames do vídeo
-def escolher_video(entry_video):
-    caminho = filedialog.askopenfilename(
-        title='Selecione o arquivo de vídeo',
-        filetypes=[('Vídeo', '*.mp4 *.avi *.mov *.mkv *.wmv *.m4v')]
-    )
-    entry_video.delete(0, tk.END)
-    entry_video.insert(0, caminho)
-
-def escolher_pasta(entry_pasta):
-    pasta = filedialog.askdirectory(title='Selecione a pasta de destino')
-    entry_pasta.delete(0, tk.END)
-    entry_pasta.insert(0, pasta)
-
-def iniciar_extracao_frames(entry_video, entry_taxa):
-    caminho_video = entry_video.get().strip()
-    try:
-        taxa = int(entry_taxa.get())
-        if taxa < 1:
-            raise ValueError
-        
-    except ValueError:
-        messagebox.showwarning("Valor inválido", "Taxa de extração deve ser um inteiro >= 1.\nUsando 1.")
-        taxa = 1
-        entry_taxa.delete(0, tk.END)
-        entry_taxa.insert(0, "1")
-    extrair_frames(caminho_video, taxa)
-
-#função de limpesa
+# Funções de limpeza
 def limpar_pasta(pasta):
     if os.path.exists(pasta):
         for arquivo in os.listdir(pasta):
@@ -43,18 +12,44 @@ def limpar_pasta(pasta):
                 if os.path.isfile(caminho_arquivo) or os.path.islink(caminho_arquivo):
                     os.unlink(caminho_arquivo)
                 elif os.path.isdir(caminho_arquivo):
-                    os.rmdir(caminho_arquivo)
+                    shutil.rmtree(caminho_arquivo)
             except Exception as e:
                 print(f"Erro ao remover {caminho_arquivo}: {e}")
     else:
-        print(f"A pasta {pasta} não existe.")
+        # print(f"A pasta {pasta} não existe.") # debug
+        pass
+
+# Funções de IO robustas (Unicode safe)
+def smart_imread(path, flag=cv2.IMREAD_GRAYSCALE):
+    """Lê imagens suportando caminhos com caracteres especiais/unicode."""
+    try:
+        data = np.fromfile(path, dtype=np.uint8)
+        img = cv2.imdecode(data, flag)
+        return img
+    except Exception as e:
+        print(f"Erro ao ler imagem {path}: {e}")
+        return None
+
+def smart_imwrite(path, img):
+    """Salva imagens suportando caminhos com caracteres especiais/unicode."""
+    try:
+        # Pega a extensão do path
+        ext = os.path.splitext(path)[1]
+        ok, buf = cv2.imencode(ext, img)
+        if ok:
+            with open(path, "wb") as f:
+                f.write(buf)
+            return True
+        return False
+    except Exception as e:
+        print(f"Erro ao salvar imagem {path}: {e}")
+        return False
 
 ### Funções auxiliares para processamento de vídeo e imagens
 def mascara_morsa(img, MorsaDict):
     """
     img: imagem em escala de cinza (h, w)
-    center_pct: (cx_pct, cy_pct) em %, ex: (50, 80)
-    size_pct: (w_pct, h_pct) em %, ex: (20, 30)
+    MorsaDict: {'posX': %, 'posY': %, 'sizeX': %, 'sizeY': %}
     """
     h, w = img.shape
 
@@ -93,45 +88,56 @@ def mascara_morsa(img, MorsaDict):
     img_mascarada = cv2.bitwise_and(img, img, mask=mask)
     return img_mascarada
 
+def gerar_preview(video_path, morsaDict):
+    """
+    Gera um frame de preview com a máscara aplicada.
+    Retorna a imagem mascarada (grayscale).
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return None
+    ret, frame = cap.read()
+    cap.release()
+    
+    if not ret:
+        return None
+
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    masked = mascara_morsa(gray, morsaDict)
+    return masked
+
 def linha_neutra(img_edges,
                  min_largura_viga=5,
                  passo_linhas=2):
     """
     img_edges: imagem binária (uint8) com bordas (0 ou 255) da viga
-    min_largura_viga: largura mínima em pixels para aceitar um par de bordas
-    passo_linhas: pular linhas para acelerar (1 = todas as linhas)
     """
     h, w = img_edges.shape
     pontos_neutros = []
 
-    for y in range(0, h, passo_linhas):
-        linha = img_edges[y, :]          # linha y
-        xs = np.where(linha > 0)[0]      # índices das bordas
+    # Percorre colunas (x) para viga horizontal
+    for x in range(0, w, passo_linhas):
+        coluna = img_edges[:, x]         # coluna x
+        ys = np.where(coluna > 0)[0]     # índices das bordas (linhas)
 
-        if xs.size < 2:
+        if ys.size < 2:
             continue  # menos de 2 bordas, ignora
 
-        x_esq = xs.min()
-        x_dir = xs.max()
+        # Pega a primeira e a segunda bordas encontradas (índices 0 e 1)
+        y_top = ys[0]
+        y_bottom = ys[1]
 
-        if (x_dir - x_esq) < min_largura_viga:
-            continue  # ruído, não parece ser a viga
+        if (y_bottom - y_top) < min_largura_viga:
+            continue  # muito próximos, ignora
 
-        x_centro = (x_esq + x_dir) / 2.0
-        pontos_neutros.append([x_centro, y])
+        y_centro = (y_top + y_bottom) / 2.0
+        pontos_neutros.append([x, y_centro])
 
-    pontos_neutros = np.array(pontos_neutros, dtype=np.float32)
-
-    # Opcional: ajusta uma reta x(y) = a*y + b para suavizar
-    if len(pontos_neutros) >= 2:
-        ys = pontos_neutros[:, 1]
-        xs = pontos_neutros[:, 0]
-        A = np.vstack([ys, np.ones_like(ys)]).T
-        a, b = np.linalg.lstsq(A, xs, rcond=None)[0]
-        xs_fit = a * ys + b
-        pontos_suavizados = np.vstack([xs_fit, ys]).T.astype(np.int32)
+    # Sem regressão linear, retorna apenas os pontos encontrados
+    if len(pontos_neutros) > 0:
+        pontos_suavizados = np.array(pontos_neutros, dtype=np.int32)
     else:
-        pontos_suavizados = pontos_neutros.astype(np.int32)
+        pontos_suavizados = np.empty((0, 2), dtype=np.int32)
 
     # Visualização
     img_vis = cv2.cvtColor(img_edges, cv2.COLOR_GRAY2BGR)
@@ -141,33 +147,21 @@ def linha_neutra(img_edges,
     return pontos_suavizados, img_vis
 
 
-### funções principais para o bottão de extração de dados de vibração
+### Processamento principal
+
 def extrair_frames(caminho_video, pasta_saida, taxa_extracao=1):
     if not caminho_video:
-        messagebox.showerror("Erro", "É necessário escolher um vídeo.")
+        raise ValueError("Caminho do vídeo não especificado.")
      
     if not os.path.exists(pasta_saida):
-        try:
-            os.makedirs(pasta_saida)
-        except OSError as e:
-            messagebox.showerror("Erro", f"Não foi possível criar a pasta:\n{pasta_saida}\n\nDetalhe: {e}")
-            
+        os.makedirs(pasta_saida, exist_ok=True) # garante criação
 
     video = cv2.VideoCapture(caminho_video)
     if not video.isOpened():
-        messagebox.showerror("Erro", f"Não foi possível abrir o vídeo:\n{caminho_video}")
-        
+        raise IOError(f"Não foi possível abrir o vídeo: {caminho_video}")
 
-    total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = video.get(cv2.CAP_PROP_FPS)
-    largura = int(video.get(cv2.CAP_PROP_FRAME_WIDTH))
-    altura = int(video.get(cv2.CAP_PROP_FRAME_HEIGHT))
-
-    info = f"Vídeo aberto com sucesso.\nFrames: {total_frames}\nFPS: {fps:.2f}\nResolução: {largura}x{altura}"
-    messagebox.showinfo("Informações do vídeo", info)
-
-    cont = 0
     salvo = 0
+    cont = 0
     while True:
         ret, frame = video.read()
         if not ret:
@@ -175,29 +169,34 @@ def extrair_frames(caminho_video, pasta_saida, taxa_extracao=1):
 
         if cont % taxa_extracao == 0:
             nome_frame = os.path.join(pasta_saida, f"frame_{salvo:05d}.png")
-            ok = cv2.imwrite(nome_frame, frame)
+            
+            # USO de smart_imwrite
+            ok = smart_imwrite(nome_frame, frame)
+            
             if not ok:
-                messagebox.showerror("Erro ao salvar",
-                                     f"Não foi possível salvar o frame:\n{nome_frame}\n"
-                                     f"Verifique permissões e espaço em disco.")
                 video.release()
-                return 
+                raise IOError(f"Falha ao salvar frame: {nome_frame}")
             salvo += 1
         cont += 1
 
     video.release()
-    messagebox.showinfo("Concluído", f"{salvo} frames salvos em:\n{pasta_saida}")
-    return 
+    print(f"Extração concluída: {salvo} frames em {pasta_saida}")
+    return salvo
 
 def cannyLoop(pasta_frames, morsaDict=None):
     for arquivo in os.listdir(pasta_frames):
         if arquivo.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
             caminho_imagem = os.path.join(pasta_frames, arquivo)
-            img = cv2.imread(caminho_imagem, cv2.IMREAD_GRAYSCALE)
+            
+            # USO de smart_imread
+            img = smart_imread(caminho_imagem, cv2.IMREAD_GRAYSCALE)
+            
+            if img is None: continue
+
             blur = cv2.GaussianBlur(img, (5, 5), 0)
-           
+            
             # Aplica Canny
-            edges = cv2.Canny(blur, 100, 240)
+            edges = cv2.Canny(blur, 70, 200)
             
             #aplica máscara da morsa aqui se necessário
             if morsaDict:
@@ -205,66 +204,56 @@ def cannyLoop(pasta_frames, morsaDict=None):
 
             # Salva a imagem resultante
             nome_saida = os.path.join(pasta_frames, f"canny_{arquivo}")
-            cv2.imwrite(nome_saida, edges)
-            os.remove(caminho_imagem)  # Remove a imagem original
-    messagebox.showinfo("Concluído", f"Detecção de bordas aplicada a todos os frames.\nResultados salvos em:\n{pasta_frames}")
+            
+            # USO de smart_imwrite
+            smart_imwrite(nome_saida, edges)
+            
+            try:
+                os.remove(caminho_imagem)  # Remove a imagem original
+            except OSError:
+                pass
+    print("Canny aplicado.")
 
 def linha_neutra_loop(pasta_frames):
     for arquivo in os.listdir(pasta_frames):
         if arquivo.lower().startswith('canny_') and arquivo.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
             caminho_imagem = os.path.join(pasta_frames, arquivo)
-            img_edges = cv2.imread(caminho_imagem, cv2.IMREAD_GRAYSCALE)
+            
+            # USO de smart_imread
+            img_edges = smart_imread(caminho_imagem, cv2.IMREAD_GRAYSCALE)
+            
+            if img_edges is None: continue
 
             pontos_neutros, img_vis = linha_neutra(img_edges)
 
             # Salva a imagem de visualização
             nome_saida = os.path.join(pasta_frames, f"linha_neutra_{arquivo}")
-            cv2.imwrite(nome_saida, img_vis)
-            os.remove(caminho_imagem)  # Remove a imagem de bordas
-    messagebox.showinfo("Concluído", f"Linha neutra extraída de todos os frames.\nResultados salvos em:\n{pasta_frames}")
+            
+            # USO de smart_imwrite
+            smart_imwrite(nome_saida, img_vis)
+            
+            try:
+                os.remove(caminho_imagem)  # Remove a imagem de bordas
+            except OSError:
+                pass
+    print("Linha neutra extraída.")
 
 
+def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, morsaDict=None):
+    """
+    Função principal que orquestra o processamento.
+    Agora aceita pasta_saida explicitamente e não bloqueia UI com imshows.
+    """
+    # 1. Limpeza e Preparação
+    limpar_pasta(pasta_saida)
+    os.makedirs(pasta_saida, exist_ok=True)
 
-## função do botão de extração de dados de vibração com Canny
-def ler_vibracoes(entry_video, entry_taxa, morsaDict=None):
-    #extração de frames
-    caminho_video = entry_video.get().strip()
-    try:
-        taxa = int(entry_taxa.get())
-        if taxa < 1:
-            raise ValueError
-        
-    except ValueError:
-        messagebox.showwarning("Valor inválido", "Taxa de extração deve ser um inteiro >= 1.\nUsando 1.")
-        taxa = 1
-        entry_taxa.delete(0, tk.END)
-        entry_taxa.insert(0, "1")
-    
-    #geração da pasta de frames 
-    pasta_frames = os.path.join(os.getcwd(), "frames_saida")
+    # 2. Extração
+    extrair_frames(caminho_video, pasta_saida, taxa_extracao)
 
-    limpar_pasta(pasta_frames)
-    
-    if not os.path.exists(pasta_frames):
-        raise OSError(f"Não foi possível criar a pasta:\n{pasta_frames}")
+    # 3. Canny
+    cannyLoop(pasta_saida, morsaDict)
 
-    extrair_frames(caminho_video, pasta_frames, taxa)
+    # 4. Linha Neutra (Optical Flow simulado / preparo)
+    linha_neutra_loop(pasta_saida)
 
-    # aplicação do Canny em todos os frames
-    cannyLoop(pasta_frames, morsaDict)
-
-    cv2.imshow("Teste1", cv2.imread(os.path.join(pasta_frames, os.listdir(pasta_frames)[0])))
-
-    # TESTE -_-_-_-_-_-_-_-_
-    
-    cv2.imshow("Teste2", cv2.imread(os.path.join(pasta_frames, os.listdir(pasta_frames)[0])))
-    
-    # Identificação de pontos de interesse para optical flow. (caso seja escolhido pontos esparsos)
-    linha_neutra_loop(pasta_frames)
-
-    #extração do optical flow
-
-    #teste 
-    cv2.imshow("Teste3", cv2.imread(os.path.join(pasta_frames, os.listdir(pasta_frames)[0])))
-    cv2.waitKey(0)  
-    cv2.destroyAllWindows()

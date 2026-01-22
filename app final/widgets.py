@@ -1,16 +1,17 @@
 import tkinter as tk
 from tkinter import filedialog
-import tools as tll
+import cv2
+from PIL import Image, ImageTk
 
 
 #widget para escolha de vídeo
-def escolha_video(roottk):
+def escolha_video(roottk, cmd_selecionar):
     tk.Label(roottk, text="Vídeo escolhido:").grid(row=0, column=0, padx=8, pady=10)
     
     entry_video = tk.Entry(roottk, width=65)
     entry_video.grid(row=0, column=1, padx=4)
     
-    btn_video = tk.Button(roottk, text="Selecionar vídeo", command=lambda: tll.escolher_video(entry_video))
+    btn_video = tk.Button(roottk, text="Selecionar vídeo", command=lambda: cmd_selecionar(entry_video))
     btn_video.grid(row=0, column=2, padx=4)
     return entry_video
 
@@ -29,16 +30,17 @@ def alternar_morsa(var, frame, root):
     """Mostra ou esconde o frame de parâmetros de morsa."""
     if var.get():
         frame.grid(row=1, column=1, columnspan=2, rowspan=2, padx=10, pady=5, sticky="nw")
-        root.geometry("700x300")  # aumenta a janela
+        root.geometry("700x600")  # aumenta a janela para caber o preview
     else:
         frame.grid_remove()
         root.geometry("700x150")  # reduz a janela
     
 
-def entrada_morsa(raiz):
+def entrada_morsa(raiz, entry_video, cb_preview):
     """
     Cria o seletor de existência de morsa + frame de parâmetros.
-    Retorna: entry_largura, entry_altura, tem_morsa (BooleanVar).
+    cb_preview: função(path_video, morsaDict) -> np.array (imagem cv2) ou None
+    Retorna: tem_morsa (BooleanVar), (entry_largura, entry_altura), (entry_posY, entry_posX).
     """
     # variável de controle: existe morsa?
     tem_morsa = tk.BooleanVar(value=False)
@@ -101,6 +103,67 @@ def entrada_morsa(raiz):
     entry_posX = tk.Entry(frame_morsa1, width=10)
     entry_posX.insert(0, "50")
     entry_posX.grid(row=3, column=1)
+
+    lbl_preview = tk.Label(frame_morsa1, text="Preview")
+    lbl_preview.grid(row=4, column=0, columnspan=2, pady=5)
+
+    def atualizar_preview(*args):
+        # Pega caminho do video
+        video_path = entry_video.get()
+        if not video_path:
+            return
+
+        # Pega valores dos entries
+        try:
+            lx = int(entry_largura.get())
+            ly = int(entry_altura.get())
+            py = int(entry_posY.get())
+            px = int(entry_posX.get())
+        except ValueError:
+            return
+        
+        # Monta dict
+        morsaDict = {
+            'sizeX': lx,
+            'sizeY': ly,
+            'posY': py,
+            'posX': px,
+        }
+
+        # Chama callback injetado para obter a imagem processada
+        img_show = cb_preview(video_path, morsaDict)
+        
+        if img_show is None:
+            return
+
+        # Resize para caber no label
+        h, w = img_show.shape[:2]
+        fator = 300 / w if w > 0 else 1
+        novo_w = 300
+        novo_h = int(h * fator)
+        if novo_h > 250: # limite altura tambem
+            fator = 250 / h
+            novo_h = 250
+            novo_w = int(w * fator)
+
+        img_b = cv2.resize(img_show, (novo_w, novo_h))
+        
+        # Converte para ImageTk
+        im_pil = Image.fromarray(img_b)
+        im_tk = ImageTk.PhotoImage(image=im_pil)
+        
+        lbl_preview.configure(image=im_tk, text="")
+        lbl_preview.image = im_tk # manter referencia
+
+    # Binds
+    entry_largura.bind('<KeyRelease>', atualizar_preview)
+    entry_altura.bind('<KeyRelease>', atualizar_preview)
+    entry_posY.bind('<KeyRelease>', atualizar_preview)
+    entry_posX.bind('<KeyRelease>', atualizar_preview)
+    entry_largura.bind('<FocusIn>', atualizar_preview)
+    
+    btn_upd = tk.Button(frame_morsa1, text="Atualizar Preview", command=atualizar_preview)
+    btn_upd.grid(row=5, column=0, columnspan=2, pady=0)
 
     return tem_morsa, (entry_largura, entry_altura), (entry_posY, entry_posX)
 
