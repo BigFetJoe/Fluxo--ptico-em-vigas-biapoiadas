@@ -2,6 +2,7 @@ import cv2
 import os
 import numpy as np
 import shutil
+from tkinter import messagebox
 
 # Funções de limpeza
 def limpar_pasta(pasta):
@@ -82,6 +83,11 @@ def recortar_roi(img, roiDict):
     roiDict: {'x1': %, 'x2': %, 'y1': %, 'y2': %}
     Retorna a imagem RECORTADA na região de interesse.
     """
+
+    """
+    mudar o morsaDict para ROIdict e adicionar os dados de step para linha neutra
+    """ #to-do
+
     x1, y1, x2, y2 = _get_roi_coords(img.shape, roiDict)
 
     # Recorta a imagem
@@ -160,112 +166,96 @@ def linha_neutra(img_edges,
     return pontos_suavizados, img_vis
 
 
-### Processamento principal
+### Processamento principal OTIMIZADO (Memory-Based)
 
-def extrair_frames(caminho_video, pasta_saida, taxa_extracao=1):
-    if not caminho_video:
-        raise ValueError("Caminho do vídeo não especificado.")
-     
-    if not os.path.exists(pasta_saida):
-        os.makedirs(pasta_saida, exist_ok=True) # garante criação
+import data_extraction as de
 
-    video = cv2.VideoCapture(caminho_video)
-    if not video.isOpened():
-        raise IOError(f"Não foi possível abrir o vídeo: {caminho_video}")
+def processar_frame(img, morsaDict=None):
+    """
+    Processa um único frame: Recorte -> Blur -> Canny -> Linha Neutra.
+    Retorna: pontos_neutros, imagem_visualizacao
+    """ 
+    
+    """
+    Será mudado depois para deteção subpixel!!! 
+    """ #to-do
+    
+    if morsaDict:
+        img = recortar_roi(img, morsaDict)
 
-    salvo = 0
-    cont = 0
-    while True:
-        ret, frame = video.read()
-        if not ret:
-            break
+    # Pré-processamento
+    blur = cv2.GaussianBlur(img, (5, 5), 0)
+    edges = cv2.Canny(blur, 70, 200)
 
-        if cont % taxa_extracao == 0:
-            nome_frame = os.path.join(pasta_saida, f"frame_{salvo:05d}.png")
-            
-            # USO de smart_imwrite
-            ok = smart_imwrite(nome_frame, frame)
-            
-            if not ok:
-                video.release()
-                raise IOError(f"Falha ao salvar frame: {nome_frame}")
-            salvo += 1
-        cont += 1
-
-    video.release()
-    print(f"Extração concluída: {salvo} frames em {pasta_saida}")
-    return salvo
-
-def cannyLoop(pasta_frames, morsaDict=None):
-    for arquivo in os.listdir(pasta_frames):
-        if arquivo.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
-            caminho_imagem = os.path.join(pasta_frames, arquivo)
-            
-            # USO de smart_imread
-            img = smart_imread(caminho_imagem, cv2.IMREAD_GRAYSCALE)
-            
-            if img is None: continue
-
-            if morsaDict:
-                img = recortar_roi(img, morsaDict)
-
-            blur = cv2.GaussianBlur(img, (5, 5), 0)
-            
-            # Aplica Canny
-            edges = cv2.Canny(blur, 70, 200)
-
-            # Salva a imagem resultante
-            nome_saida = os.path.join(pasta_frames, f"canny_{arquivo}")
-            
-            # USO de smart_imwrite
-            smart_imwrite(nome_saida, edges)
-            
-            try:
-                os.remove(caminho_imagem)  # Remove a imagem original
-            except OSError:
-                pass
-    print("Canny aplicado.")
-
-def linha_neutra_loop(pasta_frames):
-    for arquivo in os.listdir(pasta_frames):
-        if arquivo.lower().startswith('canny_') and arquivo.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
-            caminho_imagem = os.path.join(pasta_frames, arquivo)
-            
-            # USO de smart_imread
-            img_edges = smart_imread(caminho_imagem, cv2.IMREAD_GRAYSCALE)
-            
-            if img_edges is None: continue
-
-            pontos_neutros, img_vis = linha_neutra(img_edges)
-
-            # Salva a imagem de visualização
-            nome_saida = os.path.join(pasta_frames, f"linha_neutra_{arquivo}")
-            
-            # USO de smart_imwrite
-            smart_imwrite(nome_saida, img_vis)
-            
-            try:
-                os.remove(caminho_imagem)  # Remove a imagem de bordas
-            except OSError:
-                pass
-    print("Linha neutra extraída.")
-
+    # Extração de dados
+    pontos, img_vis = linha_neutra(edges)
+    
+    return pontos, img_vis
 
 def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, morsaDict=None):
     """
-    Função principal que orquestra o processamento.
-    Agora aceita pasta_saida explicitamente e não bloqueia UI com imshows.
+    Nova implementação de ler_vibracoes:
+    - Lê o vídeo frame a frame.
+    - Processa em memória (sem salvar frames intermediários).
+    - Acumula dados físicos (TimeMatrix).
+    - Salva CSV de dados e (opcionalmente) imagens de visualização.
     """
-    # 1. Limpeza e Preparação
+    # 1. Preparação
+    if not caminho_video:
+        raise ValueError("Caminho do vídeo não especificado.")
+    
     limpar_pasta(pasta_saida)
     os.makedirs(pasta_saida, exist_ok=True)
+    
+    cap = cv2.VideoCapture(caminho_video)
+    if not cap.isOpened():
+        raise IOError(f"Não foi possível abrir o vídeo: {caminho_video}")
 
-    # 2. Extração
-    extrair_frames(caminho_video, pasta_saida, taxa_extracao)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps <= 0: fps = 30.0 # Fallback
 
-    # 3. Canny
-    cannyLoop(pasta_saida, morsaDict)
+    # Inicializa o acumulador de dados
+    extractor = de.VibrationTimeSeries(fps=fps, scale_factor=1.0)
 
-    # 4. Linha Neutra (Optical Flow simulado / preparo)
-    linha_neutra_loop(pasta_saida)
+    messagebox.showinfo("Status", f"Iniciando processamento: {caminho_video}\n@ {fps:.2f} FPS")
+    
+    frame_idx = 0
+    saved_count = 0
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        # Processar apenas a cada 'taxa_extracao' frames
+        if frame_idx % taxa_extracao == 0:
+            # Converter para grayscale
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            
+            # Pipeline de extração
+            pontos, img_vis = processar_frame(gray, morsaDict)
+            
+            # Armazenar dados
+            # pontos é um np.array [[x, y], ...], converter para lista de tuplas
+            lista_pontos = [(float(p[0]), float(p[1])) for p in pontos]
+            extractor.add_frame(frame_idx, lista_pontos)
+
+            # Salvar imagem de visualização (opcional, mas bom para feedback visual)
+            # Para não lotar o disco, podemos salvar apenas visualizações processadas
+            nome_arquivo = f"proc_{saved_count:05d}.jpg"
+            caminho_img = os.path.join(pasta_saida, nome_arquivo)
+            smart_imwrite(caminho_img, img_vis)
+            
+            saved_count += 1
+
+        frame_idx += 1
+
+    cap.release()
+
+    # 2. Exportar Dados
+    csv_path = os.path.join(pasta_saida, "dados_vibracao.csv")
+    extractor.save_csv(csv_path)
+
+    print(f"Processamento concluído. {saved_count} frames processados.")
+    print(f"Dados salvos em: {csv_path}")
 
