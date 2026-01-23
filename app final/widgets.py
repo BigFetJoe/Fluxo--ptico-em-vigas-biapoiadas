@@ -48,7 +48,7 @@ def entrada_morsa(raiz, entry_video, cb_preview):
     # checkbox de sim/não
     chk_morsa = tk.Checkbutton(
         raiz,
-        text="Existe morsa?",
+        text="Recortar imagem? (ROI)",
         variable=tem_morsa
     )
     chk_morsa.grid(row=2, column=0, padx=10, pady=5, sticky="w")
@@ -56,7 +56,7 @@ def entrada_morsa(raiz, entry_video, cb_preview):
     # frame de parâmetros (inicialmente escondido)
     frame_morsa1 = tk.LabelFrame(
         raiz,
-        text="Parâmetros da morsa",
+        text="Parâmetros de Recorte",
         padx=8,
         pady=8
     )
@@ -70,39 +70,39 @@ def entrada_morsa(raiz, entry_video, cb_preview):
     # widgets internos do frame
     tk.Label(
         frame_morsa1,
-        text="Largura da morsa (% da imagem):"
-    ).grid(row=0, column=0, padx=8, pady=10, sticky="w")
+        text="X Inicial (%):"
+    ).grid(row=0, column=0, padx=8, pady=5, sticky="w")
 
-    entry_largura = tk.Entry(frame_morsa1, width=10)
-    entry_largura.insert(0, "40")
-    entry_largura.grid(row=0, column=1, sticky="w")
-
-    tk.Label(
-        frame_morsa1,
-        text="Altura da morsa (% da imagem):"
-    ).grid(row=1, column=0, padx=8, pady=10, sticky="w")
-
-    entry_altura = tk.Entry(frame_morsa1, width=10)
-    entry_altura.insert(0, "10")
-    entry_altura.grid(row=1, column=1, sticky="w")
+    entry_x1 = tk.Entry(frame_morsa1, width=10)
+    entry_x1.insert(0, "0")
+    entry_x1.grid(row=0, column=1, sticky="w")
 
     tk.Label(
         frame_morsa1,
-        text="(posição Y do centro da morsa \n em % da altura da imagem)"
-    ).grid(row=2, column=0, columnspan=2, padx=8, pady=5, sticky="w")
+        text="X Final (%):"
+    ).grid(row=1, column=0, padx=8, pady=5, sticky="w")
 
-    entry_posY = tk.Entry(frame_morsa1, width=10)
-    entry_posY.insert(0, "90")
-    entry_posY.grid(row=3, column=0)
+    entry_x2 = tk.Entry(frame_morsa1, width=10)
+    entry_x2.insert(0, "100")
+    entry_x2.grid(row=1, column=1, sticky="w")
 
     tk.Label(
         frame_morsa1,
-        text="(posição X do centro da morsa \n em % da largura da imagem)"
-    ).grid(row=2, column=1, padx=8, pady=5, sticky="w")
+        text="Y Inicial (%):"
+    ).grid(row=2, column=0, padx=8, pady=5, sticky="w")
 
-    entry_posX = tk.Entry(frame_morsa1, width=10)
-    entry_posX.insert(0, "50")
-    entry_posX.grid(row=3, column=1)
+    entry_y1 = tk.Entry(frame_morsa1, width=10)
+    entry_y1.insert(0, "0")
+    entry_y1.grid(row=2, column=1, sticky="w")
+
+    tk.Label(
+        frame_morsa1,
+        text="Y Final (%):"
+    ).grid(row=3, column=0, padx=8, pady=5, sticky="w")
+
+    entry_y2 = tk.Entry(frame_morsa1, width=10)
+    entry_y2.insert(0, "100")
+    entry_y2.grid(row=3, column=1, sticky="w")
 
     lbl_preview = tk.Label(frame_morsa1, text="Preview")
     lbl_preview.grid(row=4, column=0, columnspan=2, pady=5)
@@ -115,19 +115,19 @@ def entrada_morsa(raiz, entry_video, cb_preview):
 
         # Pega valores dos entries
         try:
-            lx = int(entry_largura.get())
-            ly = int(entry_altura.get())
-            py = int(entry_posY.get())
-            px = int(entry_posX.get())
+            x1 = int(entry_x1.get())
+            x2 = int(entry_x2.get())
+            y1 = int(entry_y1.get())
+            y2 = int(entry_y2.get())
         except ValueError:
             return
         
         # Monta dict
         morsaDict = {
-            'sizeX': lx,
-            'sizeY': ly,
-            'posY': py,
-            'posX': px,
+            'x1': x1,
+            'x2': x2,
+            'y1': y1,
+            'y2': y2,
         }
 
         # Chama callback injetado para obter a imagem processada
@@ -156,15 +156,14 @@ def entrada_morsa(raiz, entry_video, cb_preview):
         lbl_preview.image = im_tk # manter referencia
 
     # Binds
-    entry_largura.bind('<KeyRelease>', atualizar_preview)
-    entry_altura.bind('<KeyRelease>', atualizar_preview)
-    entry_posY.bind('<KeyRelease>', atualizar_preview)
-    entry_posX.bind('<KeyRelease>', atualizar_preview)
-    entry_largura.bind('<FocusIn>', atualizar_preview)
+    entry_x1.bind('<KeyRelease>', atualizar_preview)
+    entry_x2.bind('<KeyRelease>', atualizar_preview)
+    entry_y1.bind('<KeyRelease>', atualizar_preview)
+    entry_y2.bind('<KeyRelease>', atualizar_preview)
     
     btn_upd = tk.Button(frame_morsa1, text="Atualizar Preview", command=atualizar_preview)
-    btn_upd.grid(row=5, column=0, columnspan=2, pady=0)
+    btn_upd.grid(row=6, column=0, columnspan=2, pady=0)
 
-    return tem_morsa, (entry_largura, entry_altura), (entry_posY, entry_posX)
+    return tem_morsa, (entry_x1, entry_x2), (entry_y1, entry_y2)
 
 

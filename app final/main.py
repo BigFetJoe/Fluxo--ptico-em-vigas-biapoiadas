@@ -31,7 +31,7 @@ def main():
     entry_taxa  = wdg.taxa_extracao_entry(janela)
 
     # Widgets de morsa -> recebem a função de callback de preview
-    tem_morsa, tamanho_morsa, pos_morsa = wdg.entrada_morsa(janela, entry_video, cb_gerar_preview)
+    tem_morsa, x_entries, y_entries = wdg.entrada_morsa(janela, entry_video, cb_gerar_preview)
 
     # --- Lógica de Processamento (Thread) ---
     def processar_em_background(video_path, taxa, morsa_dict, pasta_saida):
@@ -66,11 +66,14 @@ def main():
         if tem_morsa.get():
             try:
                 morsaDict = {
-                    'sizeX': int(tamanho_morsa[0].get().strip()), 
-                    'sizeY': int(tamanho_morsa[1].get().strip()),   
-                    'posY': int(pos_morsa[0].get().strip()),     
-                    'posX': int(pos_morsa[1].get().strip()),     
+                    'x1': int(x_entries[0].get().strip()), 
+                    'x2': int(x_entries[1].get().strip()),   
+                    'y1': int(y_entries[0].get().strip()),     
+                    'y2': int(y_entries[1].get().strip()),     
                 }
+            except ValueError:
+                messagebox.showerror("Erro", "Verifique os parâmetros da morsa (devem ser números inteiros).")
+                return
             except ValueError:
                 messagebox.showerror("Erro", "Verifique os parâmetros da morsa (devem ser números inteiros).")
                 return

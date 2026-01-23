@@ -46,52 +46,57 @@ def smart_imwrite(path, img):
         return False
 
 ### Funções auxiliares para processamento de vídeo e imagens
-def mascara_morsa(img, MorsaDict):
+def _get_roi_coords(shape, roiDict):
     """
-    img: imagem em escala de cinza (h, w)
-    MorsaDict: {'posX': %, 'posY': %, 'sizeX': %, 'sizeY': %}
+    Função auxiliar para calcular coordenadas de pixel a partir de porcentagens.
     """
-    h, w = img.shape
+    h, w = shape[:2]
+    
+    # Extrai porcentagens
+    pct_x1 = roiDict.get('x1', 0)
+    pct_x2 = roiDict.get('x2', 100)
+    pct_y1 = roiDict.get('y1', 0)
+    pct_y2 = roiDict.get('y2', 100)
 
-    cx_pct, cy_pct = MorsaDict['posX'], MorsaDict['posY']
-    w_pct,  h_pct  = MorsaDict['sizeX'], MorsaDict['sizeY']
+    # Converte para pixels
+    x1 = int((pct_x1 / 100.0) * w)
+    x2 = int((pct_x2 / 100.0) * w)
+    y1 = int((pct_y1 / 100.0) * h)
+    y2 = int((pct_y2 / 100.0) * h)
 
-    cy_pct = 100 - cy_pct  # inverter Y para coordenadas de imagem
+    # Ordena para evitar coordenadas invertidas
+    if x1 > x2: x1, x2 = x2, x1
+    if y1 > y2: y1, y2 = y2, y1
 
-    # centro em pixels
-    cx = (cx_pct / 100.0) * w
-    cy = (cy_pct / 100.0) * h
-
-    # metade da largura/altura em pixels
-    half_w = (w_pct / 100.0) * w / 2.0
-    half_h = (h_pct / 100.0) * h / 2.0
-
-    # coordenadas do retângulo
-    x1 = int(cx - half_w)
-    x2 = int(cx + half_w)
-    y1 = int(cy - half_h)
-    y2 = int(cy + half_h)
-
-    # garantir que fiquem dentro da imagem
+    # Garantir limites
     x1 = max(0, x1)
     y1 = max(0, y1)
     x2 = min(w, x2)
     y2 = min(h, y2)
+    
+    return x1, y1, x2, y2
 
-    # cria máscara branca
-    mask = np.ones((h, w), dtype=np.uint8) * 255
-
-    # zera região da morsa
-    mask[y1:y2, x1:x2] = 0
-
-    # aplica máscara
-    img_mascarada = cv2.bitwise_and(img, img, mask=mask)
-    return img_mascarada
-
-def gerar_preview(video_path, morsaDict):
+def recortar_roi(img, roiDict):
     """
-    Gera um frame de preview com a máscara aplicada.
-    Retorna a imagem mascarada (grayscale).
+    img: imagem em escala de cinza (h, w)
+    roiDict: {'x1': %, 'x2': %, 'y1': %, 'y2': %}
+    Retorna a imagem RECORTADA na região de interesse.
+    """
+    x1, y1, x2, y2 = _get_roi_coords(img.shape, roiDict)
+
+    # Recorta a imagem
+    if x2 > x1 and y2 > y1:
+        img_recortada = img[y1:y2, x1:x2]
+    else:
+        # Fallback
+        img_recortada = img
+
+    return img_recortada
+
+def gerar_preview(video_path, roiDict):
+    """
+    Gera um frame de preview com o retângulo ROI desenhado.
+    Retorna a imagem RGB com o retângulo vermelho.
     """
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -102,9 +107,17 @@ def gerar_preview(video_path, morsaDict):
     if not ret:
         return None
 
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    masked = mascara_morsa(gray, morsaDict)
-    return masked
+    # Converte para RGB para exibição correta no Tkinter/PIL e para poder desenhar colorido
+    img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    
+    # Calcula coordenadas
+    x1, y1, x2, y2 = _get_roi_coords(img_rgb.shape, roiDict)
+    
+    # Desenha retângulo vermelho (R, G, B) = (255, 0, 0)
+    # Espessura 3 px
+    cv2.rectangle(img_rgb, (x1, y1), (x2, y2), (255, 0, 0), 3)
+    
+    return img_rgb
 
 def linha_neutra(img_edges,
                  min_largura_viga=5,
@@ -193,14 +206,13 @@ def cannyLoop(pasta_frames, morsaDict=None):
             
             if img is None: continue
 
+            if morsaDict:
+                img = recortar_roi(img, morsaDict)
+
             blur = cv2.GaussianBlur(img, (5, 5), 0)
             
             # Aplica Canny
             edges = cv2.Canny(blur, 70, 200)
-            
-            #aplica máscara da morsa aqui se necessário
-            if morsaDict:
-                edges = mascara_morsa(edges, morsaDict)
 
             # Salva a imagem resultante
             nome_saida = os.path.join(pasta_frames, f"canny_{arquivo}")
