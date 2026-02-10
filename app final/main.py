@@ -9,7 +9,7 @@ import widgets as wdg
 def main():
     janela = tk.Tk()
     janela.title("Extrator de dados de vibração")
-    janela.geometry("700x150")
+    janela.geometry("700x20")
 
     # --- Callbacks para UI ---
     def cmd_selecionar_video(entry_widget):

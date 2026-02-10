@@ -199,6 +199,10 @@ def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, morsaDict=None):
     - Processa em memória (sem salvar frames intermediários).
     - Acumula dados físicos (TimeMatrix).
     - Salva CSV de dados e (opcionalmente) imagens de visualização.
+
+    #to-do: 
+    adicionar widget pra FPS manual, ou então tentar fazer com que o app leia o FPS. mas por garantia existir o manual.
+
     """
     # 1. Preparação
     if not caminho_video:
