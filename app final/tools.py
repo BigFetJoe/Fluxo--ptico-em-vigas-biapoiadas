@@ -185,14 +185,14 @@ def processar_frame(img, morsaDict=None):
 
     # Pré-processamento
     blur = cv2.GaussianBlur(img, (5, 5), 0)
-    edges = cv2.Canny(blur, 70, 200)
+    edges = cv2.Canny(blur, 10, 150)
 
     # Extração de dados
     pontos, img_vis = linha_neutra(edges)
     
     return pontos, img_vis
 
-def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, morsaDict=None):
+def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, fps_video, ROI_dict=None):
     """
     Nova implementação de ler_vibracoes:
     - Lê o vídeo frame a frame.
@@ -215,9 +215,13 @@ def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, morsaDict=None):
     if not cap.isOpened():
         raise IOError(f"Não foi possível abrir o vídeo: {caminho_video}")
 
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    if fps <= 0: fps = 30.0 # Fallback
+    if fps_video > 0: # checa a entrada do usuário na UI 
+        fps = fps_video
+    else:
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps <= 0: fps = 30.0 # Fallback 
 
+    
     # Inicializa o acumulador de dados
     extractor = de.VibrationTimeSeries(fps=fps, scale_factor=1.0)
 
@@ -237,7 +241,7 @@ def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, morsaDict=None):
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             
             # Pipeline de extração
-            pontos, img_vis = processar_frame(gray, morsaDict)
+            pontos, img_vis = processar_frame(gray, ROI_dict)
             
             # Armazenar dados
             # pontos é um np.array [[x, y], ...], converter para lista de tuplas
@@ -250,7 +254,7 @@ def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, morsaDict=None):
             caminho_img = os.path.join(pasta_saida, nome_arquivo)
             smart_imwrite(caminho_img, img_vis)
             
-            saved_count += 1
+            saved_count += 1    
 
         frame_idx += 1
 
@@ -259,6 +263,16 @@ def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, morsaDict=None):
     # 2. Exportar Dados
     csv_path = os.path.join(pasta_saida, "dados_vibracao.csv")
     extractor.save_csv(csv_path)
+    
+    # 3. Gerar Gráficos
+    df = extractor.to_dataframe()
+    try:
+        import data_visualization as dv
+        dv.plot_data_integrity(df, pasta_saida)
+        dv.plot_natural_frequency(df, fps, pasta_saida)
+        dv.plot_modal_shape_and_curvature(df, pasta_saida)
+    except Exception as e:
+        print(f"Erro ao gerar gráficos: {e}")
 
     print(f"Processamento concluído. {saved_count} frames processados.")
     print(f"Dados salvos em: {csv_path}")

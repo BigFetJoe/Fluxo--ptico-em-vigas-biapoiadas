@@ -9,7 +9,7 @@ import widgets as wdg
 def main():
     janela = tk.Tk()
     janela.title("Extrator de dados de vibração")
-    janela.geometry("700x20")
+    janela.geometry("700x250")
 
     # --- Callbacks para UI ---
     def cmd_selecionar_video(entry_widget):
@@ -29,16 +29,17 @@ def main():
     # Injeção de dependências: passamos as funções de comando
     entry_video = wdg.escolha_video(janela, cmd_selecionar_video)
     entry_taxa  = wdg.taxa_extracao_entry(janela)
+    entry_fps   = wdg.fps_video_entry(janela)   
 
     # Widgets de morsa -> recebem a função de callback de preview
-    tem_morsa, x_entries, y_entries = wdg.entrada_morsa(janela, entry_video, cb_gerar_preview)
+    tem_morsa, x_entries, y_entries = wdg.entrada_ROI(janela, entry_video, cb_gerar_preview)
 
     # --- Lógica de Processamento (Thread) ---
-    def processar_em_background(video_path, taxa, morsa_dict, pasta_saida):
+    def processar_em_background(video_path, taxa, fps_video, morsa_dict, pasta_saida):
         try:
-            tll.ler_vibracoes(video_path, pasta_saida, taxa, morsa_dict)
+            tll.ler_vibracoes(video_path, pasta_saida, taxa, fps_video, morsa_dict)
             # Sucesso
-            janela.after(0, lambda: messagebox.showinfo("Concluído", f"Processamento finalizado!\nArquivos em: {pasta_saida}"))
+            janela.after(0, lambda: messagebox.showinfo("Concluído", f"Processamento finalizado!\nArquivos e gráficos salvos em:\n{pasta_saida}"))
         except Exception as e:
             # Erro
             janela.after(0, lambda: messagebox.showerror("Erro de Processamento", f"Ocorreu um erro:\n{e}"))
@@ -50,6 +51,7 @@ def main():
         # 1. Coleta e Validação de inputs (Na Thread UI)
         v_path = entry_video.get().strip()
         t_str = entry_taxa.get().strip()
+        fps_str = entry_fps.get().strip() # Captura campo da UI
 
         if not v_path:
             messagebox.showerror("Erro", "Selecione um vídeo primeiro.")
@@ -61,6 +63,15 @@ def main():
         except ValueError:
             messagebox.showwarning("Aviso", "Taxa inválida. Usando 1.")
             taxa = 1
+            
+        if not fps_str:
+            fps_video = 0.0
+        else:
+            try:
+                fps_video = float(fps_str)
+            except ValueError:
+                messagebox.showwarning("Aviso", "FPS inválido. Tentando calcular a partir do vídeo.")
+                fps_video = 0.0
 
         morsaDict = None
         if tem_morsa.get():
@@ -74,9 +85,6 @@ def main():
             except ValueError:
                 messagebox.showerror("Erro", "Verifique os parâmetros da morsa (devem ser números inteiros).")
                 return
-            except ValueError:
-                messagebox.showerror("Erro", "Verifique os parâmetros da morsa (devem ser números inteiros).")
-                return
 
         # Caminho de saída (padrão ou perguntar? Por enquanto padrão, melhoria futura: perguntar)
         pasta_saida = os.path.join(os.getcwd(), "frames_saida")
@@ -86,7 +94,7 @@ def main():
         
         t = threading.Thread(
             target=processar_em_background, 
-            args=(v_path, taxa, morsaDict, pasta_saida),
+            args=(v_path, taxa, fps_video, morsaDict, pasta_saida), # FPS agora é passado
             daemon=True 
         )
         t.start()

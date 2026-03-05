@@ -21,90 +21,90 @@ def taxa_extracao_entry(roottk):
     
     entry_taxa = tk.Entry(frame_extracao, width=10)
     entry_taxa.insert(0, "1")
-    entry_taxa.grid(row=2, column=1, sticky='w')
+    entry_taxa.grid(row=0, column=0, sticky='w')
     return entry_taxa
 
 
 #input de dados para a mascara da morsa.
-def alternar_morsa(var, frame, root):
+def alternar_ROI(var, frame, root):
     """Mostra ou esconde o frame de parâmetros de morsa."""
     if var.get():
-        frame.grid(row=1, column=1, columnspan=2, rowspan=2, padx=10, pady=5, sticky="nw")
+        frame.grid(row=1, column=1, columnspan=2, rowspan=3, padx=10, pady=5, sticky="nw")
         root.geometry("700x600")  # aumenta a janela para caber o preview
     else:
         frame.grid_remove()
-        root.geometry("700x150")  # reduz a janela
+        root.geometry("700x250")  # reduz a janela
     
 
-def entrada_morsa(raiz, entry_video, cb_preview):
+def entrada_ROI(raiz, entry_video, cb_preview):
     """
-    Cria o seletor de existência de morsa + frame de parâmetros.
+    Cria o seletor de existência de ROI + frame de parâmetros.
     cb_preview: função(path_video, morsaDict) -> np.array (imagem cv2) ou None
-    Retorna: tem_morsa (BooleanVar), (entry_largura, entry_altura), (entry_posY, entry_posX).
+    Retorna: tem_ROI (BooleanVar), (entry_largura, entry_altura), (entry_posY, entry_posX).
     """
-    # variável de controle: existe morsa?
-    tem_morsa = tk.BooleanVar(value=False)
+    # variável de controle: existe ROI?
+    tem_ROI = tk.BooleanVar(value=False)
 
     # checkbox de sim/não
-    chk_morsa = tk.Checkbutton(
+    chk_ROI = tk.Checkbutton(
         raiz,
         text="Recortar imagem? (ROI)",
-        variable=tem_morsa
+        variable=tem_ROI
     )
-    chk_morsa.grid(row=2, column=0, padx=10, pady=5, sticky="w")
+    chk_ROI.grid(row=2, column=0, padx=10, pady=5, sticky="w")
 
     # frame de parâmetros (inicialmente escondido)
-    frame_morsa1 = tk.LabelFrame(
+    frame_ROI1 = tk.LabelFrame(
         raiz,
         text="Parâmetros de Recorte",
         padx=8,
         pady=8
     )
-    # NÃO faz grid aqui; quem mostra/esconde é alternar_morsa
+    # NÃO faz grid aqui; quem mostra/esconde é alternar_ROI
 
     # ligação da função de alternância (depois do frame existir)
-    chk_morsa.configure(
-        command=lambda: alternar_morsa(tem_morsa, frame_morsa1, raiz)
+    chk_ROI.configure(
+        command=lambda: alternar_ROI(tem_ROI, frame_ROI1, raiz)
     )
 
     # widgets internos do frame
     tk.Label(
-        frame_morsa1,
+        frame_ROI1,
         text="X Inicial (%):"
     ).grid(row=0, column=0, padx=8, pady=5, sticky="w")
 
-    entry_x1 = tk.Entry(frame_morsa1, width=10)
+    entry_x1 = tk.Entry(frame_ROI1, width=10)
     entry_x1.insert(0, "0")
     entry_x1.grid(row=0, column=1, sticky="w")
 
     tk.Label(
-        frame_morsa1,
+        frame_ROI1,
         text="X Final (%):"
     ).grid(row=1, column=0, padx=8, pady=5, sticky="w")
 
-    entry_x2 = tk.Entry(frame_morsa1, width=10)
+    entry_x2 = tk.Entry(frame_ROI1, width=10)
     entry_x2.insert(0, "100")
     entry_x2.grid(row=1, column=1, sticky="w")
 
     tk.Label(
-        frame_morsa1,
+        frame_ROI1,
         text="Y Inicial (%):"
     ).grid(row=2, column=0, padx=8, pady=5, sticky="w")
 
-    entry_y1 = tk.Entry(frame_morsa1, width=10)
+    entry_y1 = tk.Entry(frame_ROI1, width=10)
     entry_y1.insert(0, "0")
     entry_y1.grid(row=2, column=1, sticky="w")
 
     tk.Label(
-        frame_morsa1,
+        frame_ROI1,
         text="Y Final (%):"
     ).grid(row=3, column=0, padx=8, pady=5, sticky="w")
 
-    entry_y2 = tk.Entry(frame_morsa1, width=10)
+    entry_y2 = tk.Entry(frame_ROI1, width=10)
     entry_y2.insert(0, "100")
     entry_y2.grid(row=3, column=1, sticky="w")
 
-    lbl_preview = tk.Label(frame_morsa1, text="Preview")
+    lbl_preview = tk.Label(frame_ROI1, text="Preview")
     lbl_preview.grid(row=4, column=0, columnspan=2, pady=5)
 
     def atualizar_preview(*args):
@@ -123,7 +123,7 @@ def entrada_morsa(raiz, entry_video, cb_preview):
             return
         
         # Monta dict
-        morsaDict = {
+        ROI_dict = {
             'x1': x1,
             'x2': x2,
             'y1': y1,
@@ -131,7 +131,7 @@ def entrada_morsa(raiz, entry_video, cb_preview):
         }
 
         # Chama callback injetado para obter a imagem processada
-        img_show = cb_preview(video_path, morsaDict)
+        img_show = cb_preview(video_path, ROI_dict)
         
         if img_show is None:
             return
@@ -161,9 +161,17 @@ def entrada_morsa(raiz, entry_video, cb_preview):
     entry_y1.bind('<KeyRelease>', atualizar_preview)
     entry_y2.bind('<KeyRelease>', atualizar_preview)
     
-    btn_upd = tk.Button(frame_morsa1, text="Atualizar Preview", command=atualizar_preview)
+    btn_upd = tk.Button(frame_ROI1, text="Atualizar Preview", command=atualizar_preview)
     btn_upd.grid(row=6, column=0, columnspan=2, pady=0)
 
-    return tem_morsa, (entry_x1, entry_x2), (entry_y1, entry_y2)
+    return tem_ROI, (entry_x1, entry_x2), (entry_y1, entry_y2)
 
+def fps_video_entry(roottk):
+    frame_fps = tk.LabelFrame(roottk, text="FPS do vídeo (vazio = auto):", padx=8, pady=8)
+    frame_fps.grid(row=3, column=0, padx=10, pady=5, sticky='w')
+    
+    entry_fps = tk.Entry(frame_fps, width=10)
+    entry_fps.insert(0, "") # Deixe vazio para descobrir automaticamente
+    entry_fps.grid(row=0, column=0, sticky='w')
+    return entry_fps
 

@@ -30,7 +30,7 @@ def run_test():
         print(f"Processando vídeo: {video_path}")
         print(f"Saída: {output_path}")
         
-        tll.ler_vibracoes(video_path, output_path, taxa, morsaDict)
+        tll.ler_vibracoes(video_path, output_path, taxa, fps_video=0, ROI_dict=morsaDict)
         
         print("Processamento finalizado sem erros de execução.")
         
