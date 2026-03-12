@@ -89,13 +89,13 @@ def plot_natural_frequency(df: pd.DataFrame, fps: float, pasta_saida: str):
     print(f"Gráfico salvo em: {caminho_html}")
 
 
-def plot_modal_shape_and_curvature(df: pd.DataFrame, pasta_saida: str):
+def plot_modal_shape_and_curvature(df: pd.DataFrame, scale_factor: float, pasta_saida: str):
     """
     Gera uma exibição combinada em 2D de eixos duplos: 
     o formato deformado da viga (Forma Modal) e a Curvatura Modal.
     """
     forma_df = sma.extrair_forma_modal(df)
-    curvatura_df = sma.calcular_curvatura_modal(forma_df)
+    curvatura_df = sma.calcular_curvatura_modal(forma_df, scale_factor=scale_factor)
     
     if curvatura_df.empty:
         return
@@ -123,7 +123,7 @@ def plot_modal_shape_and_curvature(df: pd.DataFrame, pasta_saida: str):
                 x=curvatura_df['posicao_x_pixels'], 
                 y=curvatura_df['modal_curvature'],
                 mode='lines+markers',
-                name="Curvatura Modal (Derivada Espacial Dupla)",
+                name="Curvatura Modal (1/mm)",
                 line=dict(color='red', width=2, dash='dot'),
                 marker=dict(size=6, symbol='square')
             ),
@@ -138,7 +138,7 @@ def plot_modal_shape_and_curvature(df: pd.DataFrame, pasta_saida: str):
     # Atualizar títulos dos eixos
     fig.update_xaxes(title_text="Posição na Viga (Pixels)")
     fig.update_yaxes(title_text="Deslocamento (mm)", secondary_y=False)
-    fig.update_yaxes(title_text="Curvatura Modal", secondary_y=True)
+    fig.update_yaxes(title_text="Curvatura Modal (1/mm)", secondary_y=True)
 
     caminho_html = os.path.join(pasta_saida, "forma_e_curvatura_modal.html")
     fig.write_html(caminho_html)

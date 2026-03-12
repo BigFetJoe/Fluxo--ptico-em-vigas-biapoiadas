@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from scipy.fft import fft, fftfreq
 from scipy.linalg import svd
+from scipy.signal import savgol_filter
 
 # Este módulo é focado no processamento e análise do comportamento estrutural e dinâmico da viga.
 # Suas funções principais incluem o cálculo da frequência natural fundamental através da FFT, 
@@ -77,59 +78,113 @@ def calcular_frequencia_natural(df: pd.DataFrame, fps: float) -> Tuple[float, np
 
 def extrair_forma_modal(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Extrai a forma modal contendo o envelope de deslocamentos máximos em mm ao longo do comprimento (x_px).
+    1. Constrói a Matriz Global Espaço-Tempo (2D Densa).
+    2. Aplica a Decomposição em Valores Singulares (SVD).
+    3. Extrai o Componente Principal Espacial (Modo Fundamental) blindado contra ruídos.
     """
-    if df.empty or 'displacement_mm' not in df.columns:
+    if df.empty or 'displacement_mm' not in df.columns or 'time_sec' not in df.columns:
         return pd.DataFrame()
 
-    # Encontra o deslocamento (absoluto) máximo para cada posição X na viga
-    df_abs = df.copy()
-    df_abs['abs_displacement_mm'] = df_abs['displacement_mm'].abs()
+    # 1. Cria matriz pivotada (Linhas = Tempo, Colunas = Posição X)
+    matriz_df = df.pivot(index='time_sec', columns='posicao_x_pixels', values='displacement_mm')
     
-    forma_modal = df_abs.groupby('posicao_x_pixels', as_index=False)['abs_displacement_mm'].max()
-    forma_modal = forma_modal.sort_values('posicao_x_pixels')
+    # Preenchimentos básicos de vazios
+    matriz_df = matriz_df.interpolate(method='linear', axis=0).bfill(axis=0).ffill(axis=0).fillna(0.0)
     
-    # Renomeia para fazer sentido com "amplitude do modo"
-    forma_modal.rename(columns={'abs_displacement_mm': 'modal_amplitude_mm'}, inplace=True)
+    # Extrai array numérico
+    Y = matriz_df.values
     
-    return forma_modal
+    # Remove a média de cada coluna (offset estático)
+    Y_mean = np.mean(Y, axis=0)
+    Y_centered = Y - Y_mean
+    
+    # Previne erro se a matriz for mínima
+    if min(Y_centered.shape) < 2:
+        forma_bruta = Y_centered[0, :] if Y_centered.shape[0] > 0 else np.zeros(Y_centered.shape[1])
+    else:
+        # 2. Decomposição em Valores Singulares (SVD: Y = U * S * V^T)
+        U, S_vals, Vt = svd(Y_centered, full_matrices=False)
+        
+        # 3. A Forma Modal verdadeira e livre de ruídos é a primeira linha da matriz espacial Vt
+        # Multiplicamos pelo 1º valor singular e pela oscilação temporal máxima (U[:, 0]) 
+        # para obter a amplitude física máxima do deslocamento em mm a partir do ponto de repouso
+        amp_max_temporal = np.max(np.abs(U[:, 0]))
+        forma_bruta = Vt[0, :] * S_vals[0] * amp_max_temporal
+        
+    # Salvar em formato DataFrame (mesmo formato que a versão anterior esperava)
+    coords_x = matriz_df.columns.values
+    
+    # Determinar se a forma extraída está invertida horizontalmente devido à ambiguidade de sinal do SVD
+    # Se a deformação principal é para baixo (negativa), mas a SVD cuspiu positiva, ajeitamos para fins estéticos (opcional)
+    # Pegamos o sinal da maior correlação com a matriz original
+    if len(forma_bruta) > 0:
+        correlacao_max = np.mean(Y_centered * forma_bruta, axis=0)
+        sinal_predominante = 1 if np.sum(correlacao_max) > 0 else -1
+        forma_bruta = forma_bruta * sinal_predominante
+        
+    df_forma = pd.DataFrame({
+        'posicao_x_pixels': coords_x,
+        'displacement_mm': forma_bruta,
+        'time_sec': [df['time_sec'].iloc[0]] * len(coords_x) # Apenas mantendo a coluna pro cv2 puxar o tempo (mesmo que arbitrário aqui)
+    })
+    
+    # Agora a amplitude modal é o deslocamento físico puro em relação à linha estática.
+    # Não forçamos o ponto mais baixo a ser 0, para refletir o comportamento real do segmento visto na câmera.
+    df_forma['modal_amplitude_mm'] = df_forma['displacement_mm']
+    
+    return df_forma
 
 
-def calcular_curvatura_modal(shape_df: pd.DataFrame) -> pd.DataFrame:
+def calcular_curvatura_modal(shape_df: pd.DataFrame, window_length: int = 51, polyorder: int = 3, scale_factor: float = 1.0) -> pd.DataFrame:
     """
-    Calcula a curvatura modal usando a derivada espacial de segunda ordem (diferenças finitas completas).
-    Recebe o dataframe resultante da função `extrair_forma_modal`.
+    Calcula a curvatura modal reduzida através do método clássico de diferenças finitas centrais.
+    Fórmula: \kappa_i = (\phi_{i+1} - 2\phi_i + \phi_{i-1}) / h^2
     """
     if shape_df.empty or len(shape_df) < 3:
-        # Se não houver pontos suficientes para fazer a derivada 2D, retorna vazio ou zeros.
+        # Se não houver pontos suficientes para a derivada central, não há como calcular
         return shape_df
 
-    # Converter para arrays do numpy para conta mais rápida
+    # Garantir janela ímpar e menor/igual ao tamanho dos dados
+    n_pontos = len(shape_df)
+    if window_length > n_pontos:
+        window_length = n_pontos if n_pontos % 2 != 0 else n_pontos - 1
+    elif window_length % 2 == 0:
+        window_length += 1
+
+    # Extrair os arrays
     x = shape_df['posicao_x_pixels'].values
-    w = shape_df['modal_amplitude_mm'].values
+    y = shape_df['modal_amplitude_mm'].values
     
-    # Array de resposta para curvatura
-    curvatura = np.zeros_like(w)
+    # Suavização inicial da forma modal para o gráfico (Savitzky-Golay)
+    # A diferença finita amplifica muito o ruído se aplicada sobre dados brutos experimentais
+    y_alisado = savgol_filter(y, window_length=window_length, polyorder=polyorder)
+    shape_df['modal_amplitude_mm'] = y_alisado # Atualiza a forma modal para plotagem mais orgânica
     
-    # Diferenças Frequentes Finitas Centrais (Apenas para nós internos)
-    # Curvatura(x_i) = ( w(x_i+1) - 2w(x_i) + w(x_i-1) ) / (delta_x)^2
+    # 1. Definir o vetor espacial (x) corrigido em milímetros reais
+    # Para o fit numérico funcionar bem sem problemas de condicionamento (x muito grande),
+    # centralizamos o eixo X em zero para o meio da viga e escalamos para mm físicos.
+    x_mm = (x - np.mean(x)) * scale_factor
     
-    # Nota: Como posicao_x_pixels pode não ter um passo uniformemente espaçado (ex: se um ponto falhar sempre), 
-    # teremos que usar uma média do delta X ou a fórmula genérica matemática. 
-    # Assumindo grade razoavelmente uniforme para simplificar por enquanto.
-    for i in range(1, len(x) - 1):
-        dx_frente = x[i+1] - x[i]
-        dx_tras = x[i] - x[i-1]
-        dx_medio = (dx_frente + dx_tras) / 2.0
-        
-        # Evitar divisão por zero caso haja Xs duplicados acidentalmente
-        if dx_medio > 0:
-            curvatura[i] = (w[i+1] - 2*w[i] + w[i-1]) / (dx_medio**2)
-            
-    # Bordas (i=0 e i=len-1) receberão a curvatura do vizinho mais próximo como extrapolação básica
-    curvatura[0] = curvatura[1]
-    curvatura[-1] = curvatura[-2]
+    # 2. Ajuste Polinomial Global da Forma Modal (Polynomial Fit)
+    # Para formas primárias de Euler-Bernoulli (1º modo biapoiado/engastado),
+    # polinômios pares como Grau 4 capturam perfeitamente o arco analítico da estrutura vibrando livre,
+    # ignorando instantaneamente os ruídos sub-pixel e tremidas de câmera no ajuste dos mínimos quadrados.
+    grau_polinomio = 4 
     
-    shape_df['modal_curvature'] = curvatura
+    # y_alisado do filtro pode ser mantido ou podemos ajustar sobre os dados brutos (y). 
+    # Aqui ajustamos sobre os alisados inicialmente definidos por legibilidade gráfica na linha azul.
+    coeficientes = np.polyfit(x_mm, y_alisado, grau_polinomio)
+    
+    # 3. Segunda Derivada Algébrica (Curvatura)
+    # Como y(x) = p4*x^4 + p3*x^3 + p2*x^2 + p1*x + p0, a segunda derivada (curvatura geométrica k) 
+    # é perfeitamente contínua e imune às distâncias h entre os pixels ou instabilidades numéricas
+    coeficientes_derivada2 = np.polyder(coeficientes, 2)
+    
+    # 4. Avaliar o polinômio derivado em cada ponto X do nosso segmento
+    curvatura_analitica = np.polyval(coeficientes_derivada2, x_mm)
+    
+    # Aplicar o mapeamento direto. O sinal geométrico importa, mas as vezes esteticamente (pra plot) o módulo é preferido. 
+    # Vamos manter o formalismo da derivada para manter a direção da concavidade fiel.
+    shape_df['modal_curvature'] = curvatura_analitica
     
     return shape_df

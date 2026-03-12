@@ -125,36 +125,31 @@ def gerar_preview(video_path, roiDict):
     
     return img_rgb
 
-def linha_neutra(img_edges,
-                 min_largura_viga=5,
-                 passo_linhas=2):
+def extrair_borda_superior(img_edges,
+                           min_largura_viga=5,
+                           passo_linhas=2):
     """
     img_edges: imagem binária (uint8) com bordas (0 ou 255) da viga
     """
     h, w = img_edges.shape
-    pontos_neutros = []
+    pontos_borda = []
 
     # Percorre colunas (x) para viga horizontal
     for x in range(0, w, passo_linhas):
         coluna = img_edges[:, x]         # coluna x
         ys = np.where(coluna > 0)[0]     # índices das bordas (linhas)
 
-        if ys.size < 2:
-            continue  # menos de 2 bordas, ignora
+        if ys.size < 1:
+            continue  # nenhuma borda encontrada, ignora
 
-        # Pega a primeira e a segunda bordas encontradas (índices 0 e 1)
+        # Pega a primeira borda encontrada (índice 0)
         y_top = ys[0]
-        y_bottom = ys[1]
 
-        if (y_bottom - y_top) < min_largura_viga:
-            continue  # muito próximos, ignora
-
-        y_centro = (y_top + y_bottom) / 2.0
-        pontos_neutros.append([x, y_centro])
+        pontos_borda.append([x, y_top])
 
     # Sem regressão linear, retorna apenas os pontos encontrados
-    if len(pontos_neutros) > 0:
-        pontos_suavizados = np.array(pontos_neutros, dtype=np.int32)
+    if len(pontos_borda) > 0:
+        pontos_suavizados = np.array(pontos_borda, dtype=np.int32)
     else:
         pontos_suavizados = np.empty((0, 2), dtype=np.int32)
 
@@ -172,27 +167,94 @@ import data_extraction as de
 
 def processar_frame(img, morsaDict=None):
     """
-    Processa um único frame: Recorte -> Blur -> Canny -> Linha Neutra.
-    Retorna: pontos_neutros, imagem_visualizacao
+    Processa um único frame: Recorte -> Deteção de borda com precisão sub-pixel.
+    Retorna: pontos_borda, imagem_visualizacao
     """ 
-    
-    """
-    Será mudado depois para deteção subpixel!!! 
-    """ #to-do
     
     if morsaDict:
         img = recortar_roi(img, morsaDict)
 
-    # Pré-processamento
-    blur = cv2.GaussianBlur(img, (5, 5), 0)
-    edges = cv2.Canny(blur, 10, 150)
-
-    # Extração de dados
-    pontos, img_vis = linha_neutra(edges)
+    # Extração de dados via sub-pixel EdgeDetector
+    detector = de.EdgeDetector(step=2, grad_threshold=30.0)
+    pontos, img_vis = detector.detect(img)
     
     return pontos, img_vis
 
-def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, fps_video, ROI_dict=None):
+def calcular_escala(video_path, escala_dict, pasta_saida=None):
+    """
+    Calcula os milímetros por pixel usando um frame do vídeo e o dicionário de calibração.
+    escala_dict: {'x1': %, 'x2': %, 'y1': %, 'y2': %, 'h_mm': float}
+    """
+    if not escala_dict or 'h_mm' not in escala_dict:
+        return 1.0
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return 1.0
+        
+    ret, frame = cap.read()
+    cap.release()
+    if not ret:
+        return 1.0
+        
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    img_calib = recortar_roi(gray, escala_dict)
+    img_vis = cv2.cvtColor(img_calib, cv2.COLOR_GRAY2BGR)
+    
+    # Aplicar gradiente vertical para achar as bordas
+    blur = cv2.GaussianBlur(img_calib, (5, 5), 0)
+    grad_y = cv2.Sobel(blur, cv2.CV_64F, 0, 1, ksize=3)
+    grad_abs = np.abs(grad_y)
+    
+    h_img, w_img = img_calib.shape
+    alturas_px = []
+    
+    step = 2
+    grad_threshold = 30.0
+    
+    for x in range(0, w_img, step):
+        col_grad = grad_abs[:, x]
+        ys = np.where(col_grad > grad_threshold)[0]
+        if len(ys) < 2:
+            continue
+            
+        # Pega o primeiro pico (borda superior)
+        y_top = -1
+        for y in ys:
+            if 0 < y < h_img - 1:
+                if col_grad[y] >= col_grad[y-1] and col_grad[y] >= col_grad[y+1]:
+                    y_top = y
+                    break
+                    
+        # Pega o último pico (borda inferior)
+        y_bot = -1
+        for y in reversed(ys):
+            if 0 < y < h_img - 1:
+                if col_grad[y] >= col_grad[y-1] and col_grad[y] >= col_grad[y+1]:
+                    y_bot = y
+                    break
+                    
+        if y_top != -1 and y_bot != -1 and y_bot > y_top:
+            alturas_px.append(float(y_bot - y_top))
+            # Desenha a reta e os pontos na imagem de visualização
+            cv2.line(img_vis, (x, y_top), (x, y_bot), (255, 0, 0), 1) # Linha azul
+            cv2.circle(img_vis, (x, y_top), 1, (0, 255, 0), -1) # Ponto verde superior
+            cv2.circle(img_vis, (x, y_bot), 1, (0, 0, 255), -1) # Ponto vermelho inferior
+            
+    if pasta_saida:
+        caminho_img = os.path.join(pasta_saida, "verificacao_escala.jpg")
+        smart_imwrite(caminho_img, img_vis)
+
+    if len(alturas_px) > 0:
+        altura_media_px = float(np.mean(alturas_px))
+        escala_calculada = escala_dict['h_mm'] / altura_media_px
+        print(f"Calibração de Escala: Altura em pixels ({altura_media_px:.2f}px) -> Fator {escala_calculada:.5f} mm/px")
+        return escala_calculada
+    else:
+        print("Calibração de Escala falhou: Não foi possível detectar bordas sup/inf na área escolhida. Fator 1.0")
+        return 1.0
+
+def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, fps_video, ROI_dict=None, escala_dict=None):
     """
     Nova implementação de ler_vibracoes:
     - Lê o vídeo frame a frame.
@@ -222,10 +284,14 @@ def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, fps_video, ROI_dict
         if fps <= 0: fps = 30.0 # Fallback 
 
     
-    # Inicializa o acumulador de dados
-    extractor = de.VibrationTimeSeries(fps=fps, scale_factor=1.0)
+    fator_escala = 1.0
+    if escala_dict is not None:
+        fator_escala = calcular_escala(caminho_video, escala_dict, pasta_saida)
 
-    messagebox.showinfo("Status", f"Iniciando processamento: {caminho_video}\n@ {fps:.2f} FPS")
+    # Inicializa o acumulador de dados com a escala encontrada
+    extractor = de.VibrationTimeSeries(fps=fps, scale_factor=fator_escala)
+
+    messagebox.showinfo("Status", f"Iniciando processamento: {caminho_video}\n@ {fps:.2f} FPS\nEscala: {fator_escala:.4f} mm/px")
     
     frame_idx = 0
     saved_count = 0
@@ -264,15 +330,38 @@ def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, fps_video, ROI_dict
     csv_path = os.path.join(pasta_saida, "dados_vibracao.csv")
     extractor.save_csv(csv_path)
     
-    # 3. Gerar Gráficos
+    # 3. Gerar Gráficos e Salvar Frame de Maior Deflexão
     df = extractor.to_dataframe()
     try:
         import data_visualization as dv
+        import structural_modal_analysis as sma
+        
+        # Encontra temporariamente o instante de maior deformação bruta apenas para a extração do JPG
+        matriz_df = df.pivot(index='time_sec', columns='posicao_x_pixels', values='displacement_mm')
+        matriz_df = matriz_df.interpolate(method='linear', axis=0).bfill(axis=0).ffill(axis=0).fillna(0.0)
+        soma_deflexoes = matriz_df.abs().sum(axis=1)
+        
+        if not soma_deflexoes.empty:
+            tempo_max = soma_deflexoes.idxmax()
+            frame_max_idx = int(round(tempo_max * fps))
+            
+            cap_max = cv2.VideoCapture(caminho_video)
+            cap_max.set(cv2.CAP_PROP_POS_FRAMES, frame_max_idx)
+            ret_max, frame_raw = cap_max.read()
+            if ret_max:
+                gray_raw = cv2.cvtColor(frame_raw, cv2.COLOR_BGR2GRAY)
+                pts_max, img_vis_max = processar_frame(gray_raw, ROI_dict)
+                caminho_max = os.path.join(pasta_saida, "frame_maior_deflexao.jpg")
+                smart_imwrite(caminho_max, img_vis_max)
+                print(f"Frame de maior deflexão visual ({frame_max_idx} - {tempo_max:.3f}s) salvo separadamente.")
+            cap_max.release()
+
+        # O mathematical SVD computation happens internally inside these plots
         dv.plot_data_integrity(df, pasta_saida)
         dv.plot_natural_frequency(df, fps, pasta_saida)
-        dv.plot_modal_shape_and_curvature(df, pasta_saida)
+        dv.plot_modal_shape_and_curvature(df, extractor.scale_factor, pasta_saida)
     except Exception as e:
-        print(f"Erro ao gerar gráficos: {e}")
+        print(f"Erro ao gerar gráficos/salvar max frame: {e}")
 
     print(f"Processamento concluído. {saved_count} frames processados.")
     print(f"Dados salvos em: {csv_path}")

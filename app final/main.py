@@ -33,11 +33,12 @@ def main():
 
     # Widgets de morsa -> recebem a função de callback de preview
     tem_morsa, x_entries, y_entries = wdg.entrada_ROI(janela, entry_video, cb_gerar_preview)
+    tem_escala, x_entries_esc, y_entries_esc, entry_altura = wdg.entrada_escala(janela, entry_video, cb_gerar_preview)
 
     # --- Lógica de Processamento (Thread) ---
-    def processar_em_background(video_path, taxa, fps_video, morsa_dict, pasta_saida):
+    def processar_em_background(video_path, taxa, fps_video, morsa_dict, escala_dict, pasta_saida):
         try:
-            tll.ler_vibracoes(video_path, pasta_saida, taxa, fps_video, morsa_dict)
+            tll.ler_vibracoes(video_path, pasta_saida, taxa, fps_video, morsa_dict, escala_dict)
             # Sucesso
             janela.after(0, lambda: messagebox.showinfo("Concluído", f"Processamento finalizado!\nArquivos e gráficos salvos em:\n{pasta_saida}"))
         except Exception as e:
@@ -86,6 +87,20 @@ def main():
                 messagebox.showerror("Erro", "Verifique os parâmetros da morsa (devem ser números inteiros).")
                 return
 
+        escalaDict = None
+        if tem_escala.get():
+            try:
+                escalaDict = {
+                    'x1': int(x_entries_esc[0].get().strip()),
+                    'x2': int(x_entries_esc[1].get().strip()),
+                    'y1': int(y_entries_esc[0].get().strip()),
+                    'y2': int(y_entries_esc[1].get().strip()),
+                    'h_mm': float(entry_altura.get().strip())
+                }
+            except ValueError:
+                messagebox.showerror("Erro", "Verifique os parâmetros de calibração de escala (coordenadas inteiras, altura numérica).")
+                return
+
         # Caminho de saída (padrão ou perguntar? Por enquanto padrão, melhoria futura: perguntar)
         pasta_saida = os.path.join(os.getcwd(), "frames_saida")
         
@@ -94,7 +109,7 @@ def main():
         
         t = threading.Thread(
             target=processar_em_background, 
-            args=(v_path, taxa, fps_video, morsaDict, pasta_saida), # FPS agora é passado
+            args=(v_path, taxa, fps_video, morsaDict, escalaDict, pasta_saida), 
             daemon=True 
         )
         t.start()

@@ -43,7 +43,7 @@ def entrada_ROI(raiz, entry_video, cb_preview):
     Retorna: tem_ROI (BooleanVar), (entry_largura, entry_altura), (entry_posY, entry_posX).
     """
     # variável de controle: existe ROI?
-    tem_ROI = tk.BooleanVar(value=False)
+    tem_ROI = tk.BooleanVar(value=True)
 
     # checkbox de sim/não
     chk_ROI = tk.Checkbutton(
@@ -92,7 +92,7 @@ def entrada_ROI(raiz, entry_video, cb_preview):
     ).grid(row=2, column=0, padx=8, pady=5, sticky="w")
 
     entry_y1 = tk.Entry(frame_ROI1, width=10)
-    entry_y1.insert(0, "0")
+    entry_y1.insert(0, "40")
     entry_y1.grid(row=2, column=1, sticky="w")
 
     tk.Label(
@@ -101,7 +101,7 @@ def entrada_ROI(raiz, entry_video, cb_preview):
     ).grid(row=3, column=0, padx=8, pady=5, sticky="w")
 
     entry_y2 = tk.Entry(frame_ROI1, width=10)
-    entry_y2.insert(0, "100")
+    entry_y2.insert(0, "70")
     entry_y2.grid(row=3, column=1, sticky="w")
 
     lbl_preview = tk.Label(frame_ROI1, text="Preview")
@@ -164,6 +164,9 @@ def entrada_ROI(raiz, entry_video, cb_preview):
     btn_upd = tk.Button(frame_ROI1, text="Atualizar Preview", command=atualizar_preview)
     btn_upd.grid(row=6, column=0, columnspan=2, pady=0)
 
+    # Forçar a atualização visual inicial do frame
+    alternar_ROI(tem_ROI, frame_ROI1, raiz)
+
     return tem_ROI, (entry_x1, entry_x2), (entry_y1, entry_y2)
 
 def fps_video_entry(roottk):
@@ -171,7 +174,118 @@ def fps_video_entry(roottk):
     frame_fps.grid(row=3, column=0, padx=10, pady=5, sticky='w')
     
     entry_fps = tk.Entry(frame_fps, width=10)
-    entry_fps.insert(0, "") # Deixe vazio para descobrir automaticamente
+    entry_fps.insert(0, "440") # Deixe vazio para descobrir automaticamente
     entry_fps.grid(row=0, column=0, sticky='w')
     return entry_fps
 
+def alternar_escala(var, frame, root):
+    """Mostra ou esconde o frame de parâmetros de calibração de escala."""
+    if var.get():
+        frame.grid(row=1, column=3, columnspan=2, rowspan=4, padx=10, pady=5, sticky="nw")
+        # Aumentamos mais a janela para caber dois previews se ambos estiverem abertos
+        root.geometry("1100x650") 
+    else:
+        frame.grid_remove()
+        root.geometry("700x250") # Retorna ao original (ou pelo menos esconde, o ideal seria avaliar se a Morsa está aberta, mas o Tkinter ajusta)
+
+def entrada_escala(raiz, entry_video, cb_preview):
+    """
+    Cria o seletor de existência de calibração de cala + frame.
+    Retorna: tem_escala (BooleanVar), (entries_X), (entries_Y), entry_altura.
+    """
+    tem_escala = tk.BooleanVar(value=True)
+
+    chk_escala = tk.Checkbutton(
+        raiz,
+        text="Calibrar Escala (mm/px)",
+        variable=tem_escala
+    )
+    chk_escala.grid(row=4, column=0, padx=10, pady=5, sticky="w")
+
+    frame_escala = tk.LabelFrame(
+        raiz,
+        text="Recorte para Calibração (Viga)",
+        padx=8,
+        pady=8
+    )
+
+    chk_escala.configure(
+        command=lambda: alternar_escala(tem_escala, frame_escala, raiz)
+    )
+
+    tk.Label(frame_escala, text="X Inicial (%):").grid(row=0, column=0, padx=8, pady=5, sticky="w")
+    entry_x1_esc = tk.Entry(frame_escala, width=10)
+    entry_x1_esc.insert(0, "0")
+    entry_x1_esc.grid(row=0, column=1, sticky="w")
+
+    tk.Label(frame_escala, text="X Final (%):").grid(row=1, column=0, padx=8, pady=5, sticky="w")
+    entry_x2_esc = tk.Entry(frame_escala, width=10)
+    entry_x2_esc.insert(0, "10")
+    entry_x2_esc.grid(row=1, column=1, sticky="w")
+
+    tk.Label(frame_escala, text="Y Inicial (%):").grid(row=2, column=0, padx=8, pady=5, sticky="w")
+    entry_y1_esc = tk.Entry(frame_escala, width=10)
+    entry_y1_esc.insert(0, "0")
+    entry_y1_esc.grid(row=2, column=1, sticky="w")
+
+    tk.Label(frame_escala, text="Y Final (%):").grid(row=3, column=0, padx=8, pady=5, sticky="w")
+    entry_y2_esc = tk.Entry(frame_escala, width=10)
+    entry_y2_esc.insert(0, "100")
+    entry_y2_esc.grid(row=3, column=1, sticky="w")
+
+    tk.Label(frame_escala, text="Altura da Viga (mm):").grid(row=4, column=0, padx=8, pady=5, sticky="w")
+    entry_altura = tk.Entry(frame_escala, width=10)
+    entry_altura.insert(0, "10.0")
+    entry_altura.grid(row=4, column=1, sticky="w")
+
+    lbl_preview = tk.Label(frame_escala, text="Preview Calibração")
+    lbl_preview.grid(row=5, column=0, columnspan=2, pady=5)
+
+    def atualizar_preview_escala(*args):
+        video_path = entry_video.get()
+        if not video_path:
+            return
+
+        try:
+            x1 = int(entry_x1_esc.get())
+            x2 = int(entry_x2_esc.get())
+            y1 = int(entry_y1_esc.get())
+            y2 = int(entry_y2_esc.get())
+        except ValueError:
+            return
+        
+        ROI_dict = {'x1': x1, 'x2': x2, 'y1': y1, 'y2': y2}
+        img_show = cb_preview(video_path, ROI_dict)
+        
+        if img_show is None:
+            return
+
+        h, w = img_show.shape[:2]
+        fator = 300 / w if w > 0 else 1
+        novo_w = 300
+        novo_h = int(h * fator)
+        if novo_h > 250:
+            fator = 250 / h
+            novo_h = 250
+            novo_w = int(w * fator)
+
+        img_b = cv2.resize(img_show, (novo_w, novo_h))
+        # PIL and ImageTk already globally imported in widgets.py
+        im_pil = Image.fromarray(img_b)
+        im_tk = ImageTk.PhotoImage(image=im_pil)
+        
+        lbl_preview.configure(image=im_tk, text="")
+        lbl_preview.image = im_tk
+
+    entry_x1_esc.bind('<KeyRelease>', atualizar_preview_escala)
+    entry_x2_esc.bind('<KeyRelease>', atualizar_preview_escala)
+    entry_y1_esc.bind('<KeyRelease>', atualizar_preview_escala)
+    entry_y2_esc.bind('<KeyRelease>', atualizar_preview_escala)
+    
+    btn_upd = tk.Button(frame_escala, text="Atualizar Preview", command=atualizar_preview_escala)
+    btn_upd.grid(row=6, column=0, columnspan=2, pady=0)
+
+    # Forçar a atualização visual inicial do frame
+    alternar_escala(tem_escala, frame_escala, raiz)
+
+    return tem_escala, (entry_x1_esc, entry_x2_esc), (entry_y1_esc, entry_y2_esc), entry_altura

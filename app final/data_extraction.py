@@ -3,6 +3,7 @@ import pandas as pd
 from dataclasses import dataclass, field
 from typing import List, Protocol, Tuple, Optional, Any
 import os
+import cv2
 
 # arquivo de processamento de dados:
 # importa de tools e realmente efetua o processamento com os frames do vídeo vindos do widget
@@ -14,9 +15,9 @@ class FrameData:
     """
     frame_index: int
     timestamp: float
-    # List of (x, y) points found on the neutral line
+    # List of (x, y) points found on the top edge
     # Using float because sub-pixel detection might return non-integers
-    neutral_points: List[Tuple[float, float]] = field(default_factory=list)
+    edge_points: List[Tuple[float, float]] = field(default_factory=list)
 
 @dataclass
 class PointData:
@@ -30,14 +31,72 @@ class PointData:
     confiabilidade: float = 0.0
 
 
-class EdgeDetector(Protocol):
+class EdgeDetector:
     """
-    Protocol (Interface) for edge detection algorithms.
-    This allows us to swap Canny for Sub-pixel methods later without changing the main loop.
+    Edge detector using Sobel Y gradient and parabolic interpolation for sub-pixel precision.
+    Substitui a versão baseada em cv2.Canny.
     """
-    def detect(self, image_roi: np.ndarray) -> Any:
-        # Returns an edge map or similar structure suitable for line extraction
-        ...
+    def __init__(self, step: int = 2, grad_threshold: float = 30.0):
+        self.step = step
+        self.grad_threshold = grad_threshold
+
+    def detect(self, image_roi: np.ndarray) -> Tuple[List[Tuple[float, float]], np.ndarray]:
+        # Aplicar blur para atenuar ruído de alta frequência
+        blur = cv2.GaussianBlur(image_roi, (5, 5), 0)
+        
+        # Gradiente vertical com Sobel (64-bit float para precisão)
+        grad_y = cv2.Sobel(blur, cv2.CV_64F, 0, 1, ksize=3)
+        grad_abs = np.abs(grad_y)
+        
+        h, w = image_roi.shape
+        pontos = []
+        
+        for x in range(0, w, self.step):
+            col_grad = grad_abs[:, x]
+            
+            # Localizar índices onde o gradiente passa do limiar estipulado
+            ys = np.where(col_grad > self.grad_threshold)[0]
+            if len(ys) == 0:
+                continue
+                
+            # Procurar o primeiro pico local que represente a borda superior
+            y_peak = -1
+            for y in ys:
+                if 0 < y < h - 1:
+                    # Condição de pico local
+                    if col_grad[y] >= col_grad[y-1] and col_grad[y] >= col_grad[y+1]:
+                        y_peak = y
+                        break
+                        
+            if y_peak == -1:
+                # Fallback: pega a primeira amostra acima do threshold que não caiba num pico ideal
+                y_peak = ys[0]
+                if y_peak <= 0 or y_peak >= h - 1:
+                    pontos.append((float(x), float(y_peak)))
+                    continue
+                    
+            # Interpolação parabólica (fórmula de sub-pixel)
+            g1 = col_grad[y_peak - 1]
+            g2 = col_grad[y_peak]
+            g3 = col_grad[y_peak + 1]
+            
+            denominador = (g1 - 2*g2 + g3)
+            if denominador != 0:
+                # O ajuste de sub-pixel na grade do pixel base y_peak
+                offset = 0.5 * (g1 - g3) / denominador
+                sub_y = float(y_peak) + offset
+            else:
+                sub_y = float(y_peak)
+                
+            pontos.append((float(x), sub_y))
+            
+        # Gera a imagem de visualização
+        img_vis = cv2.cvtColor(image_roi, cv2.COLOR_GRAY2BGR)
+        for p in pontos:
+            # Desenha em vermelho os pontos encontrados (arredondando apenas pra tela)
+            cv2.circle(img_vis, (int(p[0]), int(round(p[1]))), 1, (0, 0, 255), -1)
+            
+        return pontos, img_vis
 
 class VibrationTimeSeries:
     """
