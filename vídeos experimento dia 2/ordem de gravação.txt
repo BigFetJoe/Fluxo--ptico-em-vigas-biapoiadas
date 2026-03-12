@@ -1,6 +1,7 @@
 ordem de gravação
-fps 435
+fps 440
 exposure 1876
+pode usar os dados que já vem default no recorte de ROI do software, eu fiz eles baseados no vídeo da posição 6.
 
 posição 1: shaker, 290 cm distância
 
