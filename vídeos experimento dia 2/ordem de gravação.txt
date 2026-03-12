@@ -1,0 +1,16 @@
+ordem de gravação
+fps 435
+exposure 1876
+
+posição 1: shaker, 290 cm distância
+
+pos 2: centro, 290
+
+pos 3: shaker, 215cm 
+
+pos 4: centro, 215cm
+
+pos 5: shaker, 155cm
+
+pos 6: centro, 155cm
+
