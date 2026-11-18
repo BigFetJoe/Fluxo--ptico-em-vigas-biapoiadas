@@ -1,0 +1,4 @@
+# Normaliza finais de linha no repositório (LF), checkout nativo no Windows
+* text=auto
+*.py text diff=python
+*.md text
