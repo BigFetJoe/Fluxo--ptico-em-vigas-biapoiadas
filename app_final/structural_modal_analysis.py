@@ -3,6 +3,8 @@ import pandas as pd
 from scipy.fft import fft, fftfreq
 from scipy.linalg import svd
 from scipy.signal import savgol_filter
+from scipy.optimize import curve_fit
+from sklearn.metrics import r2_score
 
 # Este módulo é focado no processamento e análise do comportamento estrutural e dinâmico da viga.
 # Suas funções principais incluem o cálculo da frequência natural fundamental através da FFT, 
@@ -11,7 +13,7 @@ from scipy.signal import savgol_filter
 
 from typing import Tuple
 
-def calcular_frequencia_natural(df: pd.DataFrame, fps: float) -> Tuple[float, np.ndarray, np.ndarray]:
+def calcular_frequencia_natural(df: pd.DataFrame, fps: float, video_name: str = "") -> Tuple[float, np.ndarray, np.ndarray]:
     """
     Calcula a frequência natural fundamental (em Hz) utilizando a Transformada Rápida de Fourier (FFT)
     após agregação da matriz espaço-tempo com Decomposição em Valores Singulares (SVD).
@@ -45,6 +47,16 @@ def calcular_frequencia_natural(df: pd.DataFrame, fps: float) -> Tuple[float, np
         # O parâmetro full_matrices=False é para extrair forma otimizada de U (T x min(T, N))
         U, S_vals, Vt = svd(Y_centered, full_matrices=False)
         
+        # --- CÁLCULO DA RAZÃO DE VARIÂNCIA EXPLICADA (EVR) ---
+        energia_total = np.sum(S_vals**2)
+        energia_1 = S_vals[0]**2
+        evr_1 = (energia_1 / energia_total) * 100
+        
+        if video_name:
+            print(f"[{video_name}] Energia do 1º componente (SVD): {evr_1:.2f}%")
+        else:
+            print(f"Energia do 1º componente (SVD): {evr_1:.2f}%")
+        
         # O ruído foi filtrado para as caudas do SVD. Pegamos o Principal Componente Espaço-Temporal:
         # A 1ª coluna de U (U[:, 0]) guarda a dinâmica predominante (Shape Modificado x Ritmo).
         # Multiplicamos pelo 1º valor singular (S_vals[0]) para restaurar proporção de amplitude do sinal global
@@ -76,7 +88,7 @@ def calcular_frequencia_natural(df: pd.DataFrame, fps: float) -> Tuple[float, np
     return freq_fundamental_hz, frequencias_hz, espectro_magnitude
 
 
-def extrair_forma_modal(df: pd.DataFrame) -> pd.DataFrame:
+def extrair_forma_modal(df: pd.DataFrame, video_name: str = "") -> pd.DataFrame:
     """
     1. Constrói a Matriz Global Espaço-Tempo (2D Densa).
     2. Aplica a Decomposição em Valores Singulares (SVD).
@@ -104,6 +116,16 @@ def extrair_forma_modal(df: pd.DataFrame) -> pd.DataFrame:
     else:
         # 2. Decomposição em Valores Singulares (SVD: Y = U * S * V^T)
         U, S_vals, Vt = svd(Y_centered, full_matrices=False)
+        
+        # --- CÁLCULO DA RAZÃO DE VARIÂNCIA EXPLICADA (EVR) ---
+        energia_total = np.sum(S_vals**2)
+        energia_1 = S_vals[0]**2
+        evr_1 = (energia_1 / energia_total) * 100
+        
+        if video_name:
+            print(f"[{video_name}] Energia do 1º componente (SVD): {evr_1:.2f}%")
+        else:
+            print(f"Energia do 1º componente (SVD): {evr_1:.2f}%")
         
         # 3. A Forma Modal verdadeira e livre de ruídos é a primeira linha da matriz espacial Vt
         # Multiplicamos pelo 1º valor singular e pela oscilação temporal máxima (U[:, 0]) 
@@ -135,13 +157,12 @@ def extrair_forma_modal(df: pd.DataFrame) -> pd.DataFrame:
     return df_forma
 
 
-def calcular_curvatura_modal(shape_df: pd.DataFrame, window_length: int = 51, polyorder: int = 3, scale_factor: float = 1.0) -> pd.DataFrame:
+def suavizar_forma_modal(shape_df: pd.DataFrame, window_length: int = 51, polyorder: int = 3) -> pd.DataFrame:
     """
-    Calcula a curvatura modal reduzida através do método clássico de diferenças finitas centrais.
-    Fórmula: \kappa_i = (\phi_{i+1} - 2\phi_i + \phi_{i-1}) / h^2
+    Suaviza a forma modal calculada utilizando o filtro Savitzky-Golay, retendo apenas a linha azul de amplitude.
     """
     if shape_df.empty or len(shape_df) < 3:
-        # Se não houver pontos suficientes para a derivada central, não há como calcular
+        # Se não houver pontos suficientes, não há como suavizar
         return shape_df
 
     # Garantir janela ímpar e menor/igual ao tamanho dos dados
@@ -152,39 +173,74 @@ def calcular_curvatura_modal(shape_df: pd.DataFrame, window_length: int = 51, po
         window_length += 1
 
     # Extrair os arrays
-    x = shape_df['posicao_x_pixels'].values
     y = shape_df['modal_amplitude_mm'].values
     
     # Suavização inicial da forma modal para o gráfico (Savitzky-Golay)
-    # A diferença finita amplifica muito o ruído se aplicada sobre dados brutos experimentais
+    # y_alisado será a nossa "linha azul" principal
     y_alisado = savgol_filter(y, window_length=window_length, polyorder=polyorder)
     shape_df['modal_amplitude_mm'] = y_alisado # Atualiza a forma modal para plotagem mais orgânica
     
-    # 1. Definir o vetor espacial (x) corrigido em milímetros reais
-    # Para o fit numérico funcionar bem sem problemas de condicionamento (x muito grande),
-    # centralizamos o eixo X em zero para o meio da viga e escalamos para mm físicos.
-    x_mm = (x - np.mean(x)) * scale_factor
-    
-    # 2. Ajuste Polinomial Global da Forma Modal (Polynomial Fit)
-    # Para formas primárias de Euler-Bernoulli (1º modo biapoiado/engastado),
-    # polinômios pares como Grau 4 capturam perfeitamente o arco analítico da estrutura vibrando livre,
-    # ignorando instantaneamente os ruídos sub-pixel e tremidas de câmera no ajuste dos mínimos quadrados.
-    grau_polinomio = 4 
-    
-    # y_alisado do filtro pode ser mantido ou podemos ajustar sobre os dados brutos (y). 
-    # Aqui ajustamos sobre os alisados inicialmente definidos por legibilidade gráfica na linha azul.
-    coeficientes = np.polyfit(x_mm, y_alisado, grau_polinomio)
-    
-    # 3. Segunda Derivada Algébrica (Curvatura)
-    # Como y(x) = p4*x^4 + p3*x^3 + p2*x^2 + p1*x + p0, a segunda derivada (curvatura geométrica k) 
-    # é perfeitamente contínua e imune às distâncias h entre os pixels ou instabilidades numéricas
-    coeficientes_derivada2 = np.polyder(coeficientes, 2)
-    
-    # 4. Avaliar o polinômio derivado em cada ponto X do nosso segmento
-    curvatura_analitica = np.polyval(coeficientes_derivada2, x_mm)
-    
-    # Aplicar o mapeamento direto. O sinal geométrico importa, mas as vezes esteticamente (pra plot) o módulo é preferido. 
-    # Vamos manter o formalismo da derivada para manter a direção da concavidade fiel.
-    shape_df['modal_curvature'] = curvatura_analitica
-    
     return shape_df
+
+from typing import Tuple
+
+def _funcao_teorica_viga_biapoiada(x, A, L, phi, C):
+    """
+    Função teórica para o 1º modo de vibração de uma viga biapoiada (Simply Supported).
+    y(x) = A * sin(pi * x / L + phi) + C
+    L = comprimento total da onda
+    A = Amplitude Máxima
+    phi = Phase shift
+    C = Offset Vertical
+    """
+    return A * np.sin(np.pi * x / L + phi) + C
+
+def ajustar_curva_teorica(shape_df: pd.DataFrame) -> Tuple[pd.DataFrame, float]:
+    """
+    Ajusta a forma modal suavizada experimental a uma onda senoidal teórica (Viga Biapoiada, 1º Modo).
+    Retorna o DataFrame modificado com a coluna 'modal_teorica_mm' e o coeficiente R² do ajuste.
+    """
+    if shape_df.empty or len(shape_df) < 3 or 'modal_amplitude_mm' not in shape_df.columns:
+        shape_df['modal_teorica_mm'] = shape_df.get('modal_amplitude_mm', 0.0)
+        return shape_df, 0.0
+        
+    x_data = shape_df['posicao_x_pixels'].values
+    y_data = shape_df['modal_amplitude_mm'].values
+    
+    # Estimativas iniciais (Chutes) para o curve_fit convergir bem
+    x_min, x_max = x_data.min(), x_data.max()
+    L_guess = x_max - x_min if x_max > x_min else 1.0 # Aproximadamente a tela toda
+    
+    # Prepara o X transladado para o fit numérico ficar mais estável
+    x_norm = x_data - x_min
+    
+    A_guess = np.max(np.abs(y_data)) # Amplitude máxima
+    # Ajuste de sinal inicial baseado se a "barriga" é para cima ou para baixo
+    meio_real = np.mean(y_data)
+    if meio_real < 0:
+        A_guess = -A_guess
+        
+    C_guess = y_data[0] # Começa no offset do começo da viga
+    phi_guess = 0.0
+    
+    p0 = [A_guess, L_guess, phi_guess, C_guess]
+    
+    bounds = (
+        [-np.inf, L_guess * 0.5, -np.pi, -np.inf],
+        [np.inf, L_guess * 3.0, np.pi, np.inf]
+    )
+    
+    try:
+        popt, pcov = curve_fit(_funcao_teorica_viga_biapoiada, x_norm, y_data, p0=p0, bounds=bounds, maxfev=10000)
+        y_teorico = _funcao_teorica_viga_biapoiada(x_norm, *popt)
+        
+        # Calcular R2 score
+        r2 = r2_score(y_data, y_teorico)
+        
+        shape_df['modal_teorica_mm'] = y_teorico
+        return shape_df, r2
+    except Exception as e:
+        print(f"Erro ao ajustar curva teórica: {e}")
+        # Retorna R2 zero e usa a própria curva como fallback
+        shape_df['modal_teorica_mm'] = np.nan
+        return shape_df, 0.0

@@ -227,7 +227,20 @@ class VibrationTimeSeries:
         """
         df = self.to_dataframe()
         if not df.empty:
-            df.to_csv(filepath, index=False)
+            df.to_csv(filepath, index=False, sep=';', decimal=',')
             print(f"Data successfully saved to {filepath}")
         else:
             print("No data to save.")
+
+    def save_matrix_csv(self, filepath: str):
+        """
+        Exports the matrix of points along x by displacement in a CSV, 
+        where columns are the points and rows are the displacements.
+        """
+        df = self.to_dataframe()
+        if not df.empty:
+            matriz_df = df.pivot(index='time_sec', columns='posicao_x_pixels', values='displacement_mm')
+            matriz_df.to_csv(filepath, sep=';', decimal=',')
+            print(f"Matrix data successfully saved to {filepath}")
+        else:
+            print("No data to save as matrix.")

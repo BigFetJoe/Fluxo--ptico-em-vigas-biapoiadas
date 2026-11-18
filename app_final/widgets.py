@@ -18,11 +18,22 @@ def escolha_video(roottk, cmd_selecionar):
 def taxa_extracao_entry(roottk):
     frame_extracao = tk.LabelFrame(roottk, text="Taxa de extração (1 = todos):", padx=8, pady=8)
     frame_extracao.grid(row=1, column=0, padx=10, pady=5, sticky='w')
-    
+
     entry_taxa = tk.Entry(frame_extracao, width=10)
     entry_taxa.insert(0, "1")
     entry_taxa.grid(row=0, column=0, sticky='w')
     return entry_taxa
+
+
+def corte_inicial_entry(roottk):
+    """Campo para descartar os primeiros N segundos do vídeo (0 = sem corte)."""
+    frame_corte = tk.LabelFrame(roottk, text="Cortar início (segundos):", padx=8, pady=8)
+    frame_corte.grid(row=5, column=0, padx=10, pady=5, sticky='w')
+
+    entry_corte = tk.Entry(frame_corte, width=10)
+    entry_corte.insert(0, "0")
+    entry_corte.grid(row=0, column=0, sticky='w')
+    return entry_corte
 
 
 #input de dados para a mascara da morsa.
@@ -109,7 +120,10 @@ def entrada_ROI(raiz, entry_video, cb_preview):
 
     def atualizar_preview(*args):
         # Pega caminho do video
-        video_path = entry_video.get()
+        video_paths_str = entry_video.get()
+        if not video_paths_str:
+            return
+        video_path = video_paths_str.split(';')[0].strip()
         if not video_path:
             return
 
@@ -242,7 +256,10 @@ def entrada_escala(raiz, entry_video, cb_preview):
     lbl_preview.grid(row=5, column=0, columnspan=2, pady=5)
 
     def atualizar_preview_escala(*args):
-        video_path = entry_video.get()
+        video_paths_str = entry_video.get()
+        if not video_paths_str:
+            return
+        video_path = video_paths_str.split(';')[0].strip()
         if not video_path:
             return
 

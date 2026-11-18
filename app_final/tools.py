@@ -254,7 +254,7 @@ def calcular_escala(video_path, escala_dict, pasta_saida=None):
         print("Calibração de Escala falhou: Não foi possível detectar bordas sup/inf na área escolhida. Fator 1.0")
         return 1.0
 
-def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, fps_video, ROI_dict=None, escala_dict=None):
+def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, fps_video, ROI_dict=None, escala_dict=None, segundos_iniciais=0.0):
     """
     Nova implementação de ler_vibracoes:
     - Lê o vídeo frame a frame.
@@ -262,7 +262,13 @@ def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, fps_video, ROI_dict
     - Acumula dados físicos (TimeMatrix).
     - Salva CSV de dados e (opcionalmente) imagens de visualização.
 
-    #to-do: 
+    segundos_iniciais: quantos segundos do início do vídeo descartar antes de começar
+    a coletar dados (útil para remover transientes de acomodação ou a mão do operador
+    ainda em cena). O frame_idx absoluto é mantido, então o eixo de tempo apenas começa
+    deslocado — a FFT/SVD dependem do intervalo de amostragem, não da origem — e o seek
+    do "frame de maior deflexão" continua apontando para o frame correto do vídeo.
+
+    #to-do:
     adicionar widget pra FPS manual, ou então tentar fazer com que o app leia o FPS. mas por garantia existir o manual.
 
     """
@@ -288,11 +294,17 @@ def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, fps_video, ROI_dict
     if escala_dict is not None:
         fator_escala = calcular_escala(caminho_video, escala_dict, pasta_saida)
 
+    # Quantos frames iniciais descartar (corte dos primeiros segundos)
+    frame_inicial = 0
+    if segundos_iniciais and segundos_iniciais > 0:
+        frame_inicial = int(round(segundos_iniciais * fps))
+
     # Inicializa o acumulador de dados com a escala encontrada
     extractor = de.VibrationTimeSeries(fps=fps, scale_factor=fator_escala)
 
-    messagebox.showinfo("Status", f"Iniciando processamento: {caminho_video}\n@ {fps:.2f} FPS\nEscala: {fator_escala:.4f} mm/px")
-    
+    msg_corte = f"\nCorte inicial: {segundos_iniciais:.2f}s ({frame_inicial} frames)" if frame_inicial > 0 else ""
+    messagebox.showinfo("Status", f"Iniciando processamento: {caminho_video}\n@ {fps:.2f} FPS\nEscala: {fator_escala:.4f} mm/px{msg_corte}")
+
     frame_idx = 0
     saved_count = 0
 
@@ -300,6 +312,11 @@ def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, fps_video, ROI_dict
         ret, frame = cap.read()
         if not ret:
             break
+
+        # Descarta os frames dentro do corte inicial (mantém frame_idx absoluto)
+        if frame_idx < frame_inicial:
+            frame_idx += 1
+            continue
 
         # Processar apenas a cada 'taxa_extracao' frames
         if frame_idx % taxa_extracao == 0:
@@ -330,6 +347,9 @@ def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, fps_video, ROI_dict
     csv_path = os.path.join(pasta_saida, "dados_vibracao.csv")
     extractor.save_csv(csv_path)
     
+    csv_matrix_path = os.path.join(pasta_saida, "matriz_deslocamentos.csv")
+    extractor.save_matrix_csv(csv_matrix_path)
+    
     # 3. Gerar Gráficos e Salvar Frame de Maior Deflexão
     df = extractor.to_dataframe()
     try:
@@ -357,9 +377,10 @@ def ler_vibracoes(caminho_video, pasta_saida, taxa_extracao, fps_video, ROI_dict
             cap_max.release()
 
         # O mathematical SVD computation happens internally inside these plots
+        video_name = os.path.basename(caminho_video)
         dv.plot_data_integrity(df, pasta_saida)
-        dv.plot_natural_frequency(df, fps, pasta_saida)
-        dv.plot_modal_shape_and_curvature(df, extractor.scale_factor, pasta_saida)
+        dv.plot_natural_frequency(df, fps, pasta_saida, video_name)
+        dv.plot_modal_shape(df, pasta_saida, video_name)
     except Exception as e:
         print(f"Erro ao gerar gráficos/salvar max frame: {e}")
 

@@ -1,10 +1,37 @@
-teste.py
-teste2.py
-teste3.py
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+tempCodeRunnerFile.py
+
+# --- Scripts descartáveis (ver README) ---
+teste*.py
 extrair_frames.py
 
-__pycache__
+# --- Saídas geradas pelo app ---
+frames_saida/
+test_frames_saida/
 
-frames_saida
+# --- Mídia e dados brutos (ficam FORA do repositório, na raiz do projeto) ---
+vídeos*/
+videos*/
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.wmv
+*.m4v
 
-tempCodeRunnerFile.py
+# --- Arquivos compactados / backups ---
+*.rar
+*.zip
+*.7z
+
+# --- IDE / sistema ---
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
